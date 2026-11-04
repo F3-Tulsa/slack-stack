@@ -22,7 +22,8 @@ CONFIRM=false
 DO_BOOTSTRAP=false
 DO_SETUP_GITHUB=false
 
-# Always use uncached SAM builds (matches GitHub Actions)
+# Zip stacks stay uncached so CI and laptops match. PAXMiner image builds omit
+# this flag so Docker can reuse the pulled base and pip layers.
 SAM_BUILD_EXTRA=(--no-cached)
 
 usage() {
@@ -475,12 +476,69 @@ paxminer_image_repo_args() {
   local fn
   for fn in SyncFunction:sync AchievementsFunction:achievements \
             ScheduleFunction:schedule SlackFunction:slack; do
-    printf '%s\n' "--image-repositories" "${fn%%:*}=${base}/paxminer-${STAGE}-${fn##*:}"
+    printf '%s\n' "--image-repositories" "${fn%%:*}=${base}/paxminer"
   done
 }
 
+# Pull the newest heavy and slack images so sam build can reuse their layers.
+# The shared repo is empty on the first cutover, so also try the legacy
+# per-function repositories. Failures are ignored.
+paxminer_warm_docker_cache() {
+  local base
+  base="$(get_stack_output "$BOOTSTRAP_STACK_NAME" "EcrRepositoryBase" 2>/dev/null || true)"
+  if [[ -z "$base" || "$base" == "None" ]]; then
+    return 0
+  fi
+  aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "${base%%/*}" >/dev/null || return 0
+  local ref
+  while IFS= read -r ref; do
+    [[ -z "$ref" ]] && continue
+    docker pull "$ref" || true
+  done < <(python3 - "$base" "$STAGE" "$AWS_REGION" <<'PY'
+import json, subprocess, sys
+base, stage, region = sys.argv[1], sys.argv[2], sys.argv[3]
+ns = base.rsplit("/", 1)[-1]
+
+def newest(repo, prefix):
+    try:
+        raw = subprocess.check_output(
+            ["aws", "ecr", "describe-images", "--repository-name", repo, "--region", region, "--output", "json"],
+            stderr=subprocess.DEVNULL,
+        )
+    except subprocess.CalledProcessError:
+        return None
+    best = None
+    for image in json.loads(raw).get("imageDetails") or []:
+        tags = image.get("imageTags") or []
+        match = next((tag for tag in tags if tag.startswith(prefix)), None)
+        if not match:
+            continue
+        pushed = image.get("imagePushedAt") or ""
+        if best is None or pushed > best[0]:
+            best = (pushed, match)
+    return None if best is None else best[1]
+
+seen = set()
+for repo, prefix, uri in (
+    (f"{ns}/paxminer", "syncfunction", f"{base}/paxminer"),
+    (f"{ns}/paxminer", "slackfunction", f"{base}/paxminer"),
+    (f"{ns}/paxminer-{stage}-sync", "syncfunction", f"{base}/paxminer-{stage}-sync"),
+    (f"{ns}/paxminer-{stage}-slack", "slackfunction", f"{base}/paxminer-{stage}-slack"),
+):
+    tag = newest(repo, prefix)
+    if not tag:
+        continue
+    ref = f"{uri}:{tag}"
+    if ref not in seen:
+        seen.add(ref)
+        print(ref)
+PY
+  )
+}
+
 deploy_paxminer() {
-  sam build -t PAXminer/template.yaml ${SAM_BUILD_EXTRA[@]+"${SAM_BUILD_EXTRA[@]}"} 2>&1 | tee -a "$RECEIPT_FILE"
+  paxminer_warm_docker_cache || true
+  sam build -t PAXminer/template.yaml 2>&1 | tee -a "$RECEIPT_FILE"
   local brc="${PIPESTATUS[0]}"
   if [[ "$brc" -ne 0 ]]; then return "$brc"; fi
   [[ "$BUILD_ONLY" == true ]] && return 0

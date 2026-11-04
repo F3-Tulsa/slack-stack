@@ -99,6 +99,7 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     needs: [detect-changes]
+    if: github.repository != 'F3Nation-Community/slack-stack'
     environment: ${{ github.event.inputs.environment || github.ref_name }}
     outputs:
       sam_s3_bucket: ${{ steps.resolve_bucket.outputs.sam_s3_bucket }}
@@ -180,7 +181,7 @@ jobs:
   deploy-paxminer:
     runs-on: ubuntu-latest
     needs: [detect-changes, setup]
-    if: needs.detect-changes.outputs.run_paxminer == 'true'
+    if: github.repository != 'F3Nation-Community/slack-stack' && needs.detect-changes.outputs.run_paxminer == 'true'
     environment: ${{ github.event.inputs.environment || github.ref_name }}
     env:
       SAM_S3_BUCKET: ${{ needs.setup.outputs.sam_s3_bucket }}
@@ -191,9 +192,64 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
       - name: Build PAXminer
+        env:
+          BOOTSTRAP_STACK_NAME: ${{ vars.BOOTSTRAP_STACK_NAME || 'slack-stack-bootstrap' }}
+          STAGE: ${{ vars.STAGE }}
         run: |
           set -euo pipefail
-          sam build -t PAXminer/template.yaml --no-cached
+          # Reuse the current heavy and slack layers. The shared repo is empty
+          # on the first cutover, so also pull the legacy per-function images.
+          base="$(aws cloudformation describe-stacks \
+            --stack-name "$BOOTSTRAP_STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='EcrRepositoryBase'].OutputValue | [0]" \
+            --output text || true)"
+          if [[ -n "$base" && "$base" != "None" ]]; then
+            aws ecr get-login-password | docker login --username AWS --password-stdin "${base%%/*}" || true
+            while IFS= read -r ref; do
+              [[ -z "$ref" ]] && continue
+              docker pull "$ref" || true
+            done < <(python3 - "$base" "$STAGE" "${{ vars.AWS_REGION }}" <<'PY'
+import json, subprocess, sys
+base, stage, region = sys.argv[1], sys.argv[2], sys.argv[3]
+ns = base.rsplit("/", 1)[-1]
+
+def newest(repo, prefix):
+    try:
+        raw = subprocess.check_output(
+            ["aws", "ecr", "describe-images", "--repository-name", repo, "--region", region, "--output", "json"],
+            stderr=subprocess.DEVNULL,
+        )
+    except subprocess.CalledProcessError:
+        return None
+    best = None
+    for image in json.loads(raw).get("imageDetails") or []:
+        tags = image.get("imageTags") or []
+        match = next((tag for tag in tags if tag.startswith(prefix)), None)
+        if not match:
+            continue
+        pushed = str(image.get("imagePushedAt") or "")
+        if best is None or pushed > best[0]:
+            best = (pushed, match)
+    return None if best is None else best[1]
+
+seen = set()
+for repo, prefix, uri in (
+    (f"{ns}/paxminer", "syncfunction", f"{base}/paxminer"),
+    (f"{ns}/paxminer", "slackfunction", f"{base}/paxminer"),
+    (f"{ns}/paxminer-{stage}-sync", "syncfunction", f"{base}/paxminer-{stage}-sync"),
+    (f"{ns}/paxminer-{stage}-slack", "slackfunction", f"{base}/paxminer-{stage}-slack"),
+):
+    tag = newest(repo, prefix)
+    if not tag:
+        continue
+    ref = f"{uri}:{tag}"
+    if ref not in seen:
+        seen.add(ref)
+        print(ref)
+PY
+            )
+          fi
+          sam build -t PAXminer/template.yaml
       # ECR repositories live in the bootstrap stack so they carry a lifecycle
       # policy. --resolve-image-repos would create unmanaged repos in a SAM-owned
       # CompanionStack that never expires anything. See docs/COST.md.
@@ -220,10 +276,10 @@ jobs:
           sam deploy \
             --stack-name paxminer-${{ vars.STAGE }} \
             --no-confirm-changeset --no-fail-on-empty-changeset \
-            --image-repositories SyncFunction="${ECR_BASE}/paxminer-${STAGE}-sync" \
-            --image-repositories AchievementsFunction="${ECR_BASE}/paxminer-${STAGE}-achievements" \
-            --image-repositories ScheduleFunction="${ECR_BASE}/paxminer-${STAGE}-schedule" \
-            --image-repositories SlackFunction="${ECR_BASE}/paxminer-${STAGE}-slack" \
+            --image-repositories SyncFunction="${ECR_BASE}/paxminer" \
+            --image-repositories AchievementsFunction="${ECR_BASE}/paxminer" \
+            --image-repositories ScheduleFunction="${ECR_BASE}/paxminer" \
+            --image-repositories SlackFunction="${ECR_BASE}/paxminer" \
             --s3-bucket ${{ env.SAM_S3_BUCKET }} \
             --capabilities CAPABILITY_IAM \
             --parameter-overrides \
@@ -244,6 +300,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [detect-changes, setup, deploy-paxminer]
     if: >-
+      github.repository != 'F3Nation-Community/slack-stack' &&
       always() &&
       needs.detect-changes.outputs.run_slackblast == 'true' &&
       needs.setup.result == 'success' &&
@@ -305,7 +362,7 @@ jobs:
   deploy-qsignups:
     runs-on: ubuntu-latest
     needs: [detect-changes, setup]
-    if: needs.detect-changes.outputs.run_qsignups == 'true'
+    if: github.repository != 'F3Nation-Community/slack-stack' && needs.detect-changes.outputs.run_qsignups == 'true'
     environment: ${{ github.event.inputs.environment || github.ref_name }}
     env:
       RUN_EXTEND_SCHEDULE: ${{ vars.RUN_EXTEND_SCHEDULE }}
@@ -365,6 +422,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [detect-changes, setup, deploy-paxminer, deploy-slackblast, deploy-qsignups]
     if: >-
+      github.repository != 'F3Nation-Community/slack-stack' &&
       always() && !cancelled() &&
       needs.setup.result == 'success' &&
       needs.deploy-paxminer.result != 'failure' &&

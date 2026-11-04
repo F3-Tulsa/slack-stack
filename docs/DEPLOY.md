@@ -22,7 +22,7 @@ All deploy configuration is driven by environment variables. Copy [`.env.deploy.
 
 | Variable | Description |
 |----------|-------------|
-| `AWS_REGION` | AWS region, e.g. `us-east-2` |
+| `AWS_REGION` | AWS region, e.g. `us-east-1` |
 | *(stage)* | **Not in this file.** `./deploy.sh --env test` or `--env prod` sets `STAGE` for SAM, stack names, and manifests (must match `StagesMap` in slackblast/qsignups). |
 | `DATABASE_HOST` | MySQL / TiDB hostname |
 | `DATABASE_PORT` | Database port (default `4000` for TiDB, `3306` for MySQL) |
@@ -194,7 +194,7 @@ With `--log-type Tail`, decode logs with `jq -r '.LogResult' | base64 -d` if nee
 7. **Uninstall** the legacy WeaselBot Slack app from the workspace.
 8. When stable, drop **`weaselbot_<stage>`** schema and delete any remaining **weaselbot** CloudFormation stack (optional `--drop-weaselbot-schema` on the weaselbot phase).
 
-**This stack must cost $0/month on AWS — see [docs/COST.md](COST.md).** Lambda invocations, Function URLs, EventBridge, and CloudWatch Logs all sit inside always-free allowances at this volume, and every log group sets `RetentionInDays: 30` to keep it that way. The two things that have actually billed are **ECR image storage** (now capped by lifecycle policies on repositories declared in `infra/template.bootstrap.yaml`) and an **orphaned Lambda SnapStart snapshot** on a published version. Deploy the bootstrap stack before PAXminer, since the image repositories live there.
+**This stack must cost $0/month on AWS — see [docs/COST.md](COST.md).** Lambda invocations, Function URLs, EventBridge, and CloudWatch Logs all sit inside always-free allowances at this volume, and every log group sets `RetentionInDays: 30` to keep it that way. The charge that remains is **ECR image storage**. PAXMiner images share one repository, `slack-stack/paxminer`, declared in `infra/template.bootstrap.yaml`. Deploy that bootstrap stack before the app deploy that points at it. SnapStart is off.
 
 ### Manual Lambda invocation (qsignups)
 
@@ -309,8 +309,8 @@ aws s3 cp slackblast/assets/ s3://YOUR_IMAGE_BUCKET/ --recursive
 | **[`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)** | Pushes to **`test`** and **`prod`** only, plus manual *Run workflow*. **`main`** stays PR-only for merges. |
 | **[`.github/workflows/dependabot-automerge.yml`](../.github/workflows/dependabot-automerge.yml)** | Minor/patch → auto-merge to **`main`**; majors retarget to **`test`**. **tzdata** is CalVer (`YYYY.N`); year bumps route to **`main`** like a minor, not to `test`. |
 | **[`.github/workflows/promote-main-to-prod.yml`](../.github/workflows/promote-main-to-prod.yml)** | After main merges: promote to prod (auto-merge when CI passes). |
-| **[`.github/workflows/sync-prod-to-test.yml`](../.github/workflows/sync-prod-to-test.yml)** | **Manual only** (*Actions → Sync prod to test → Run workflow*). Merges prod into test via `chore/sync-prod-to-test` (dep-file conflicts prefer prod). Not on push to prod while test is the Weaselbot fork; restore `push: branches: [prod]` after cutover. |
-| **[`.github/workflows/promote-major-to-main.yml`](../.github/workflows/promote-major-to-main.yml)** | **Paused** until Weaselbot cutover. Was: after a successful test deploy of a `dependency-major` PR, cherry-pick onto main. Restore `workflow_run` after cutover. |
+| **[`.github/workflows/sync-prod-to-test.yml`](../.github/workflows/sync-prod-to-test.yml)** | On push to **`prod`**, merges prod into test via `chore/sync-prod-to-test` (dependency-file conflicts prefer prod). Also available as *Actions → Sync prod to test*. |
+| **[`.github/workflows/promote-major-to-main.yml`](../.github/workflows/promote-major-to-main.yml)** | After a successful test deploy of a `dependency-major` PR, cherry-picks that commit onto main. |
 
 Manual deploy: *Actions → Deploy Slack Stack → Run workflow*. Choose **environment** (`test` / `prod`) and optional **stack** (`all` or a single app). On **push**, path-based detection is used (the stack input is ignored).
 
@@ -381,7 +381,7 @@ Create environments **`test`** and **`prod`** in your repo settings (or run `./d
 | Variable | Example | Notes |
 |----------|---------|-------|
 | `STAGE` | `test` or `prod` | Must match SAM `StagesMap` keys |
-| `AWS_REGION` | `us-east-2` | |
+| `AWS_REGION` | `us-east-1` | |
 | `DATABASE_TLS_ENABLED` | `true` | Passed to all four stacks as `DatabaseTlsEnabled`; use `false` if your DB has no TLS |
 | `PAXMINER_SCHEMA` | `paxminer` | Bare name; workflow appends `_${STAGE}` to match migrated DB |
 | `SLACKBLAST_SCHEMA` | `slackblast` | Same |

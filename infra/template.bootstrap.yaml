@@ -33,7 +33,8 @@ Parameters:
     Type: String
     Default: slack-stack
     Description: >
-      Namespace for the Lambda container repositories: {Prefix}/paxminer-{stage}-{function}.
+      Namespace for the Lambda container repositories. Live images go to {Prefix}/paxminer.
+      The {Prefix}/paxminer-{stage}-{function} repositories are legacy and stay until prod has moved.
   ImagesToKeep:
     Type: Number
     Default: 5
@@ -82,11 +83,24 @@ Resources:
   # storage and growing. Declaring them here means the retention rule is part of
   # the stack instead of something a human has to remember to apply.
   #
-  # One repository per function per stage on purpose: a shared repository would
-  # let a busy function's deploys age out another function's live image.
+  # One shared repository. ECR bills unique layers per repository, and these
+  # functions reuse the same Lambda base (and, for sync/achievements/schedule,
+  # the same image digest). Eight repositories stored that base eight times.
+  # Tag-prefix lifecycle keeps each function's newest images, so a test deploy
+  # cannot expire the prod tag of a different function. Count is 10, not
+  # ImagesToKeep, because test and prod share this repository.
   #
-  # Names are deterministic (${EcrRepositoryPrefix}/paxminer-{stage}-{function}),
-  # so deploy.sh and CI build the URIs without reading stack outputs.
+  # The eight paxminer-{stage}-{function} repositories below are legacy. Leave
+  # them until every Lambda ImageUri points at the shared repository. Deleting
+  # them from this template while they still hold images makes CloudFormation
+  # try to delete non-empty repositories.
+
+  PaxminerRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${EcrRepositoryPrefix}/paxminer"
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"Keep the 10 newest sync tags.","selection":{"tagStatus":"tagged","tagPrefixList":["syncfunction"],"countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}},{"rulePriority":2,"description":"Keep the 10 newest achievements tags.","selection":{"tagStatus":"tagged","tagPrefixList":["achievementsfunction"],"countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}},{"rulePriority":3,"description":"Keep the 10 newest schedule tags.","selection":{"tagStatus":"tagged","tagPrefixList":["schedulefunction"],"countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}},{"rulePriority":4,"description":"Keep the 10 newest slack tags.","selection":{"tagStatus":"tagged","tagPrefixList":["slackfunction"],"countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}},{"rulePriority":5,"description":"Expire untagged images after 7 days.","selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countUnit":"days","countNumber":7},"action":{"type":"expire"}}]}'
 
   PaxminerTestSyncRepository:
     Type: AWS::ECR::Repository
@@ -390,9 +404,9 @@ Outputs:
       Name: !Sub "${AWS::StackName}-BootstrapRegion"
   EcrRepositoryBase:
     Description: >
-      Registry host plus namespace for the Lambda container repositories. A function's
-      repository is {base}/paxminer-{stage}-{function}. Passed to sam deploy via
-      --image-repositories so SAM does not create unmanaged repositories of its own.
+      Registry host plus namespace. Each PAXMiner function image is
+      {base}/paxminer, distinguished by SAM's function tag. Passed to sam deploy
+      via --image-repositories so SAM does not create unmanaged repositories.
     Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepositoryPrefix}"
     Export:
       Name: !Sub "${AWS::StackName}-EcrRepositoryBase"

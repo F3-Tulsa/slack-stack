@@ -19,6 +19,7 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    if: github.repository != 'F3Nation-Community/slack-stack'
     steps:
       # App token (not GITHUB_TOKEN) so the prod->test merge triggers test CI + deploy.
       - uses: actions/create-github-app-token@v3
