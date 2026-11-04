@@ -16,6 +16,7 @@ jobs:
   # never run against the new HEAD.
   requirements-sync:
     runs-on: ubuntu-latest
+    if: github.repository != 'F3Nation-Community/slack-stack'
     permissions:
       contents: write
     steps:

@@ -19,6 +19,7 @@ jobs:
   promote:
     runs-on: ubuntu-latest
     if: >-
+      github.repository != 'F3Nation-Community/slack-stack' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'test'
     steps:

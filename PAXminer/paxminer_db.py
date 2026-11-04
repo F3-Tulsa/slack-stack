@@ -83,7 +83,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 def connect_from_env(database: str):
-    """Connect using Lambda / TiDB-style env vars (same names as slackblast/weaselbot)."""
+    """Connect using Lambda / TiDB-style env vars (same names as slackblast)."""
     host = os.environ.get("DATABASE_HOST") or os.environ.get("host")
     user = os.environ.get("DATABASE_USER") or os.environ.get("user")
     password = os.environ.get("DATABASE_PASSWORD") or os.environ.get("password")
