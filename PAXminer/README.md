@@ -28,7 +28,7 @@ Posting cadence and destinations come from PAXMiner-owned schedule tables (alway
 
 Builtin defaults seed **`specific_channels`** destinations with an **empty** channel list — those items stay **skipped** until an admin picks a channel under Schedule. `dm_all_pax` and `all_ao_channels` destinations fan out immediately once due.
 
-Migration: `python migration/paxminer_migrate.py --env test|prod --all` (phases: weaselbot → scheduler DDL → drop-legacy-columns). Deploy updated Slackblast + PAXMiner code **before** `--all`. Legacy scripts `migrate_weaselbot_to_paxminer.py` and `add_report_scheduler.py` are deprecated wrappers.
+Migration: `python migration/paxminer_migrate.py --env test|prod --all`. Deploy updated Slackblast + PAXMiner code **before** `--all`. Phase details stay in `migration/`.
 
 **Production cutover order:** (1) deploy updated Slackblast + PAXMiner code, (2) run `paxminer_migrate.py --all`, (3) **Add Missing Defaults** in Slack if the region has no reports yet, (4) set Schedule channels and disable any unwanted fan-out.
 

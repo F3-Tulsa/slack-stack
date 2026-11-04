@@ -91,40 +91,45 @@ let SAM create the repositories inside a `*-CompanionStack` it owns. Those repos
 have no lifecycle policy, so every deploy pushed a new image and nothing removed
 the old one.
 
-**The repositories are now declared in
-[infra/template.bootstrap.yaml](../infra/template.bootstrap.yaml)** with a
-lifecycle policy that keeps the `ImagesToKeep` most recent (default 5) and
-expires the rest. Retention is part of the stack, so there is no script to
-remember and no way to add a function that quietly skips the rule.
+**The repositories are declared in
+[infra/template.bootstrap.yaml](../infra/template.bootstrap.yaml).** New deploys
+push every PAXMiner function to one repository, `slack-stack/paxminer`. ECR
+bills unique layers per repository, and sync, achievements, and schedule
+already share one image digest, so eight repositories stored the same Lambda
+base eight times. A tag-prefix lifecycle keeps the 10 newest tags of each
+function, which is what stops a test deploy from expiring a prod image.
 
-One repository per function per stage, named
-`slack-stack/paxminer-{stage}-{function}`. That separation is deliberate: a
-shared repository would let a frequently-deployed function age out another
-function's live image. **Lambda needs the image its deployed version references
-to still exist**, which is also why `ImagesToKeep` has a `MinValue` of 2.
+The eight `slack-stack/paxminer-{stage}-{function}` repositories are legacy.
+They stay in the bootstrap template until prod Lambdas reference the shared
+repository. Deleting those CloudFormation resources while the repositories
+still hold images fails the stack update. Do not delete them by hand before
+that cutover.
 
-Both `deploy.sh` and `.github/workflows/deploy.yml` read the `EcrRepositoryBase`
-output from the bootstrap stack and pass `--image-repositories` per function.
+`deploy.sh` and `.github/workflows/deploy.yml` read `EcrRepositoryBase` and pass
+`--image-repositories` for all four functions to `{base}/paxminer`. GitHub
+Actions does not deploy the bootstrap stack. Update stack `slack-stack-bootstrap`
+from `infra/template.bootstrap.yaml` before the first app deploy that points at
+the shared repository. `./deploy.sh --bootstrap` also continues into an app
+deploy, so use it only when that is intended.
 
-**Adding a new image-based function means adding its repository to the bootstrap
-template and a `--image-repositories` line to both deploy paths**, then
-redeploying bootstrap before the app. The deploy fails with a clear message if
-the output is missing.
+**Adding a new image-based function means a `--image-repositories` line in both
+deploy paths**, pointed at the same `slack-stack/paxminer` repository, plus a
+tag-prefix lifecycle rule if its SAM tag prefix is new. Redeploy bootstrap
+before the app when the lifecycle rule changes. The deploy fails with a clear
+message if `EcrRepositoryBase` is missing.
 
-**Dead weight to delete outright:** the four `weaselbot*` repositories, the four
-`weaselbot-*` Lambda functions, and the `weaselbot-test` / `weaselbot-prod`
-stacks plus their companion stacks. That app no longer deploys. It is on the
-cutover teardown list in the program plan.
+There is no separate Weaselbot stack left in this account. Do not go looking
+for those repositories.
 
 ## Everything else
 
 | Service | Free allowance | How this stack uses it |
 | --- | --- | --- |
-| Lambda | 1M requests + 400,000 GB-seconds per month, always free | Four PAXMiner functions plus slackblast and qsignups. The keep-warm ping is every 5 minutes (~8,600/month) and the schedule tick every 15 minutes (~2,900/month). Invocation and duration have never appeared on the bill. **SnapStart cache is billed separately and is not covered by the free tier** — see above. |
+| Lambda | 1M requests + 400,000 GB-seconds per month, always free | Four PAXMiner functions plus slackblast and qsignups. The keep-warm ping is every 5 minutes (~8,600/month) and the schedule tick every 15 minutes (~2,900/month). Invocation and duration have never appeared on the bill. SnapStart is off. A published version can keep a snapshot after the template drops the feature, so confirm no version still has `ApplyOn` other than `None` if that line ever returns. |
 | Lambda Function URLs | Free | Used instead of API Gateway specifically to avoid per-request charges. Do not introduce API Gateway. |
 | EventBridge | Scheduled rules are free | Keep-warm and the schedule tick. |
 | CloudWatch Logs | 5 GB/month combined | See above. 30-day retention set. |
-| X-Ray | 100,000 traces recorded/month | Off by default (`ENABLE_XRAY=false`). Leave it off unless debugging. |
+| X-Ray | 100,000 traces recorded/month, always free | Off by default (`ENABLE_XRAY=false`) on slackblast and qsignups. Leave it off. Turning it on stays inside the free allowance at this volume. |
 | S3 | 5 GB, **12 months only** | Deploy artifact buckets and the backblast image bucket. Worth watching; not currently a problem. |
 | Data transfer out | 100 GB/month free | Slack API calls and image serving. Not close. |
 | Secrets Manager | **Not free** ($0.40/secret/month) | **Not used.** Secrets are CloudFormation parameters and Lambda env vars. Do not introduce it. |
@@ -163,7 +168,7 @@ aws ce get-cost-and-usage --region us-east-1 \
 
 ```bash
 # Any Lambda version with SnapStart still enabled anywhere.
-for r in us-east-1 us-east-2; do
+for r in us-east-1; do
   aws lambda list-functions --region $r --query 'Functions[].FunctionName' --output text |
   tr '\t' '\n' | while read -r f; do
     aws lambda list-versions-by-function --region "$r" --function-name "$f" \
@@ -181,6 +186,6 @@ rather than setting it by hand, or the next deploy loses it.
 
 ## Other stacks in this account
 
-The account also carries `syncbot-test` / `syncbot-prod` in **us-east-2**, which
-are not part of slack-stack. They contribute the small `USE2-*` S3 lines. Free
-tier does not pool across regions, so a second region starts its own meters.
+`syncbot-test` / `syncbot-prod` also run in **us-east-1**. They are not part of
+slack-stack. us-east-2 has no app stacks. Free tier does not pool across
+regions, so a second region would start its own meters.

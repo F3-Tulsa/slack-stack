@@ -11,6 +11,7 @@ permissions:
 jobs:
   promote:
     runs-on: ubuntu-latest
+    if: github.repository != 'F3Nation-Community/slack-stack'
     steps:
       # App token so the main->prod merge triggers deploy.yml on the prod push.
       - uses: actions/create-github-app-token@v3

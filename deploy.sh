@@ -22,7 +22,8 @@ CONFIRM=false
 DO_BOOTSTRAP=false
 DO_SETUP_GITHUB=false
 
-# Always use uncached SAM builds (matches GitHub Actions)
+# Zip stacks stay uncached so CI and laptops match. PAXMiner image builds omit
+# this flag so Docker can reuse the pulled base and pip layers.
 SAM_BUILD_EXTRA=(--no-cached)
 
 usage() {
@@ -475,12 +476,30 @@ paxminer_image_repo_args() {
   local fn
   for fn in SyncFunction:sync AchievementsFunction:achievements \
             ScheduleFunction:schedule SlackFunction:slack; do
-    printf '%s\n' "--image-repositories" "${fn%%:*}=${base}/paxminer-${STAGE}-${fn##*:}"
+    printf '%s\n' "--image-repositories" "${fn%%:*}=${base}/paxminer"
   done
 }
 
+# Pull the newest heavy and slack images so sam build can reuse their layers.
+# The shared repo is empty on the first cutover, so also try the legacy
+# per-function repositories. Failures are ignored.
+paxminer_warm_docker_cache() {
+  local base
+  base="$(get_stack_output "$BOOTSTRAP_STACK_NAME" "EcrRepositoryBase" 2>/dev/null || true)"
+  if [[ -z "$base" || "$base" == "None" ]]; then
+    return 0
+  fi
+  aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "${base%%/*}" >/dev/null || return 0
+  local ref
+  while IFS= read -r ref; do
+    [[ -z "$ref" ]] && continue
+    docker pull "$ref" || true
+  done < <(python3 "$ROOT/scripts/paxminer_warm_ecr_cache.py" "$base" "$STAGE" "$AWS_REGION")
+}
+
 deploy_paxminer() {
-  sam build -t PAXminer/template.yaml ${SAM_BUILD_EXTRA[@]+"${SAM_BUILD_EXTRA[@]}"} 2>&1 | tee -a "$RECEIPT_FILE"
+  paxminer_warm_docker_cache || true
+  sam build -t PAXminer/template.yaml 2>&1 | tee -a "$RECEIPT_FILE"
   local brc="${PIPESTATUS[0]}"
   if [[ "$brc" -ne 0 ]]; then return "$brc"; fi
   [[ "$BUILD_ONLY" == true ]] && return 0

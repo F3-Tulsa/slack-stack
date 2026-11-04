@@ -22,7 +22,7 @@ Apps do **not** import each other’s Python packages; integration is via **shar
 
 ## Database and schemas
 
-- **Per-app schemas** (suffix `_test` / `_prod`): `paxminer_*`, `slackblast_*`, `qsignups_*`. Legacy `weaselbot_*` is retired after migration.
+- **Per-app schemas** (suffix `_test` / `_prod`): `paxminer_*`, `slackblast_*`, `qsignups_*`.
 - **Per-region schemas** (PAXminer “regional” data): e.g. `f3ttown_prod` — tables such as `aos`, `beatdowns`, `bd_attendance`, `users`.
 - **Registry:** `paxminer_<stage>.regions` lists regions and points at regional schema names and encrypted Slack tokens.
 
@@ -56,6 +56,9 @@ flowchart LR
 ### slackblast
 
 - Uses **regional** schema for `beatdowns` / `bd_attendance` (ORM `Backblast` / `Attendance`) plus app schema for config, Strava tokens, etc.
+- **Retry receipts** (admin schema `slackblast_<stage>`), same idea as two small lock tables:
+  - **`welcome_deliveries`** — Slack Events API `team_join` (`event_id` + destination). Stops duplicate welcome DMs/channel posts.
+  - **`interaction_claims`** — Slack interactivity `view_submission` (`view.id` + kind: backblast / preblast / strava). Slack retries the same submit when ack exceeds ~3s; each retry is a new Lambda. `beatdowns` / `bd_attendance` uniqueness needs Slack’s message `ts` from `chat_postMessage`, so those PKs cannot lock **before** the channel write. INSERT claim → post; 1062 → skip. Rows older than 7 days are deleted on each claim (own transaction, so a duplicate INSERT does not undo the purge). Do not delete on success — retries still need the row. Missing table fails closed (does not post). Code: [`slackblast/slackblast/utilities/interaction_claims.py`](../slackblast/slackblast/utilities/interaction_claims.py). Create on existing stages with `python migration/migrate_data.py --env <stage> --bootstrap-only` **before** deploying the Lambda that writes it.
 
 ### Encryption
 

@@ -22,7 +22,7 @@ All deploy configuration is driven by environment variables. Copy [`.env.deploy.
 
 | Variable | Description |
 |----------|-------------|
-| `AWS_REGION` | AWS region, e.g. `us-east-2` |
+| `AWS_REGION` | AWS region, e.g. `us-east-1` |
 | *(stage)* | **Not in this file.** `./deploy.sh --env test` or `--env prod` sets `STAGE` for SAM, stack names, and manifests (must match `StagesMap` in slackblast/qsignups). |
 | `DATABASE_HOST` | MySQL / TiDB hostname |
 | `DATABASE_PORT` | Database port (default `4000` for TiDB, `3306` for MySQL) |
@@ -194,7 +194,7 @@ With `--log-type Tail`, decode logs with `jq -r '.LogResult' | base64 -d` if nee
 7. **Uninstall** the legacy WeaselBot Slack app from the workspace.
 8. When stable, drop **`weaselbot_<stage>`** schema and delete any remaining **weaselbot** CloudFormation stack (optional `--drop-weaselbot-schema` on the weaselbot phase).
 
-**This stack must cost $0/month on AWS — see [docs/COST.md](COST.md).** Lambda invocations, Function URLs, EventBridge, and CloudWatch Logs all sit inside always-free allowances at this volume, and every log group sets `RetentionInDays: 30` to keep it that way. The two things that have actually billed are **ECR image storage** (now capped by lifecycle policies on repositories declared in `infra/template.bootstrap.yaml`) and an **orphaned Lambda SnapStart snapshot** on a published version. Deploy the bootstrap stack before PAXminer, since the image repositories live there.
+**This stack must cost $0/month on AWS — see [docs/COST.md](COST.md).** Lambda invocations, Function URLs, EventBridge, and CloudWatch Logs all sit inside always-free allowances at this volume, and every log group sets `RetentionInDays: 30` to keep it that way. The charge that remains is **ECR image storage**. PAXMiner images share one repository, `slack-stack/paxminer`, declared in `infra/template.bootstrap.yaml`. Deploy that bootstrap stack before the app deploy that points at it. SnapStart is off.
 
 ### Manual Lambda invocation (qsignups)
 
@@ -237,7 +237,7 @@ Use this when migrating data from an existing MySQL/RDS instance to a new TiDB o
 
 ### What `migrate_data.py` does
 
-- **Target bootstrap (no source read):** creates `paxminer_{STAGE}`, `slackblast_{STAGE}` with core admin tables, including Slackblast's `welcome_deliveries` retry-deduplication receipts, and seeds `paxminer.regions` rows with **empty** `slack_token` (first deploy/Lambda cold start fills encrypted tokens from **`PM_SLACK_TOKEN`**). Optionally set **`MIGRATION_SEED_TEAM_*`** to seed matching rows in `slackblast` `regions` (`team_id` + `paxminer_schema`).
+- **Target bootstrap (no source read):** creates `paxminer_{STAGE}`, `slackblast_{STAGE}` with core admin tables, including Slackblast retry receipts **`welcome_deliveries`** (Events API) and **`interaction_claims`** (modal `view_submission`), and seeds `paxminer.regions` rows with **empty** `slack_token` (first deploy/Lambda cold start fills encrypted tokens from **`PM_SLACK_TOKEN`**). Optionally set **`MIGRATION_SEED_TEAM_*`** to seed matching rows in `slackblast` `regions` (`team_id` + `paxminer_schema`).
 - **Source copy:** `f3ttown`, `f3scissortail`, and `f3stcharles` → regional schemas on the target; **`f3stcharles`** only copies base tables named `qsignups_*` (regional PAXminer objects in that schema are skipped). Set **`QSIGNUPS_TEAM_IDS`** in `migration/.env.migration.<env>` to comma-separated Slack **source** team IDs so only those rows are copied from the shared national `f3stcharles` qsignups tables (avoids importing other regions’ tokens). Use the team ID as it appears in the source DB (often prod), not the test workspace ID.
 - **Qsignups views:** after copy, recreates **`vw_weekly_events`**, **`vw_aos_sort`**, and **`vw_master_events`** on `{QSIGNUPS_SCHEMA}_{STAGE}` (same definitions as `qsignups/db/views/*.sql`).
 - **Encryption prep:** widens token columns to `VARCHAR(512)` and `qsignups_regions.google_auth_data` to `LONGTEXT` where needed, verifies each widen, and logs results under **`column_widens`** in the JSON report. If **`DB_ENCRYPTION_KEY`** is set (min 16 characters, not a placeholder), the script encrypts secrets in place; otherwise this step is skipped (Lambdas still require the key at runtime after deploy).
@@ -255,7 +255,7 @@ Use this when migrating data from an existing MySQL/RDS instance to a new TiDB o
 3. **Deploy** (`./deploy.sh --env test|prod`) if you have not already — creates the image S3 bucket (slackblast stack). Use `.env.deploy.test` / `.env.deploy.prod` (see **Deploy (local)** below).
 4. **`python migration/migrate_images.py --env test`** (or **`--env prod`**) — if the bucket did not exist during step 1, run this after deploy with **`IMAGE_S3_BUCKET`** set in the matching `.env.migration.<env>` to copy images and rewrite `beatdowns.json` URLs.
 
-For an existing stage that only needs new admin-schema objects, use **`python migration/migrate_data.py --env test --bootstrap-only`** (or the prod equivalent) before deploying dependent application code. The command applies idempotent DDL such as Slackblast's `welcome_deliveries` table without copying or replacing regional data.
+For an existing stage that only needs new admin-schema objects, use **`python migration/migrate_data.py --env test --bootstrap-only`** (or the prod equivalent) **before** deploying dependent application code. The command applies idempotent DDL such as Slackblast's `welcome_deliveries` and `interaction_claims` tables without copying or replacing regional data. Ship `interaction_claims` before the Slackblast Lambda that claims modal submits; missing table fails closed (does not post).
 
 ### Artifacts
 
@@ -309,8 +309,8 @@ aws s3 cp slackblast/assets/ s3://YOUR_IMAGE_BUCKET/ --recursive
 | **[`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)** | Pushes to **`test`** and **`prod`** only, plus manual *Run workflow*. **`main`** stays PR-only for merges. |
 | **[`.github/workflows/dependabot-automerge.yml`](../.github/workflows/dependabot-automerge.yml)** | Minor/patch → auto-merge to **`main`**; majors retarget to **`test`**. **tzdata** is CalVer (`YYYY.N`); year bumps route to **`main`** like a minor, not to `test`. |
 | **[`.github/workflows/promote-main-to-prod.yml`](../.github/workflows/promote-main-to-prod.yml)** | After main merges: promote to prod (auto-merge when CI passes). |
-| **[`.github/workflows/sync-prod-to-test.yml`](../.github/workflows/sync-prod-to-test.yml)** | **Manual only** (*Actions → Sync prod to test → Run workflow*). Merges prod into test via `chore/sync-prod-to-test` (dep-file conflicts prefer prod). Not on push to prod while test is the Weaselbot fork; restore `push: branches: [prod]` after cutover. |
-| **[`.github/workflows/promote-major-to-main.yml`](../.github/workflows/promote-major-to-main.yml)** | **Paused** until Weaselbot cutover. Was: after a successful test deploy of a `dependency-major` PR, cherry-pick onto main. Restore `workflow_run` after cutover. |
+| **[`.github/workflows/sync-prod-to-test.yml`](../.github/workflows/sync-prod-to-test.yml)** | On push to **`prod`**, merges prod into test via `chore/sync-prod-to-test` (dependency-file conflicts prefer prod). Also available as *Actions → Sync prod to test*. |
+| **[`.github/workflows/promote-major-to-main.yml`](../.github/workflows/promote-major-to-main.yml)** | After a successful test deploy of a `dependency-major` PR, cherry-picks that commit onto main. |
 
 Manual deploy: *Actions → Deploy Slack Stack → Run workflow*. Choose **environment** (`test` / `prod`) and optional **stack** (`all` or a single app). On **push**, path-based detection is used (the stack input is ignored).
 
@@ -381,7 +381,7 @@ Create environments **`test`** and **`prod`** in your repo settings (or run `./d
 | Variable | Example | Notes |
 |----------|---------|-------|
 | `STAGE` | `test` or `prod` | Must match SAM `StagesMap` keys |
-| `AWS_REGION` | `us-east-2` | |
+| `AWS_REGION` | `us-east-1` | |
 | `DATABASE_TLS_ENABLED` | `true` | Passed to all four stacks as `DatabaseTlsEnabled`; use `false` if your DB has no TLS |
 | `PAXMINER_SCHEMA` | `paxminer` | Bare name; workflow appends `_${STAGE}` to match migrated DB |
 | `SLACKBLAST_SCHEMA` | `slackblast` | Same |
