@@ -9,7 +9,7 @@ permissions:
 jobs:
   automerge:
     runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
+    if: github.actor == 'dependabot[bot]' && github.repository != 'F3Nation-Community/slack-stack'
     steps:
       # App token (not GITHUB_TOKEN) so the eventual merge triggers downstream
       # workflows (promote-main-to-prod / deploy). Requires the app id + key to be
