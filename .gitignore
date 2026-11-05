@@ -87,3 +87,6 @@ migration/rehearsal/sittings/
 # Deploy receipts and generated Slack manifests (contain API URLs)
 receipts/
 **/manifest-*.json
+
+# Local plan files. Not part of the published repo.
+.plans/
