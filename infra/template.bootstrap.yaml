@@ -33,15 +33,7 @@ Parameters:
     Type: String
     Default: slack-stack
     Description: >
-      Namespace for the Lambda container repositories. Live images go to {Prefix}/paxminer.
-      The {Prefix}/paxminer-{stage}-{function} repositories are legacy and stay until prod has moved.
-  ImagesToKeep:
-    Type: Number
-    Default: 5
-    MinValue: 2
-    Description: >
-      Images retained per repository. Lambda needs the image its deployed version references to
-      still exist, so this must stay above 1 to leave rollback headroom.
+      Namespace for the single Lambda container repository: {Prefix}/paxminer.
 
 Conditions:
   CreateOIDC: !Equals [!Ref CreateOIDCProvider, "true"]
@@ -86,14 +78,9 @@ Resources:
   # One shared repository. ECR bills unique layers per repository, and these
   # functions reuse the same Lambda base (and, for sync/achievements/schedule,
   # the same image digest). Eight repositories stored that base eight times.
-  # Tag-prefix lifecycle keeps each function's newest images, so a test deploy
-  # cannot expire the prod tag of a different function. Count is 10, not
-  # ImagesToKeep, because test and prod share this repository.
-  #
-  # The eight paxminer-{stage}-{function} repositories below are legacy. Leave
-  # them until every Lambda ImageUri points at the shared repository. Deleting
-  # them from this template while they still hold images makes CloudFormation
-  # try to delete non-empty repositories.
+  # Tag-prefix lifecycle keeps the 10 newest images of each function. Test and
+  # prod share this repository, so a test deploy cannot expire a prod tag of
+  # a different function.
 
   PaxminerRepository:
     Type: AWS::ECR::Repository
@@ -101,62 +88,6 @@ Resources:
       RepositoryName: !Sub "${EcrRepositoryPrefix}/paxminer"
       LifecyclePolicy:
         LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"Keep the 10 newest sync tags.","selection":{"tagStatus":"tagged","tagPrefixList":["syncfunction"],"countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}},{"rulePriority":2,"description":"Keep the 10 newest achievements tags.","selection":{"tagStatus":"tagged","tagPrefixList":["achievementsfunction"],"countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}},{"rulePriority":3,"description":"Keep the 10 newest schedule tags.","selection":{"tagStatus":"tagged","tagPrefixList":["schedulefunction"],"countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}},{"rulePriority":4,"description":"Keep the 10 newest slack tags.","selection":{"tagStatus":"tagged","tagPrefixList":["slackfunction"],"countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}},{"rulePriority":5,"description":"Expire untagged images after 7 days.","selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countUnit":"days","countNumber":7},"action":{"type":"expire"}}]}'
-
-  PaxminerTestSyncRepository:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: !Sub "${EcrRepositoryPrefix}/paxminer-test-sync"
-      LifecyclePolicy:
-        LifecyclePolicyText: !Sub '{"rules":[{"rulePriority":1,"description":"Keep the ${ImagesToKeep} most recent images.","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":${ImagesToKeep}},"action":{"type":"expire"}}]}'
-
-  PaxminerTestAchievementsRepository:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: !Sub "${EcrRepositoryPrefix}/paxminer-test-achievements"
-      LifecyclePolicy:
-        LifecyclePolicyText: !Sub '{"rules":[{"rulePriority":1,"description":"Keep the ${ImagesToKeep} most recent images.","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":${ImagesToKeep}},"action":{"type":"expire"}}]}'
-
-  PaxminerTestScheduleRepository:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: !Sub "${EcrRepositoryPrefix}/paxminer-test-schedule"
-      LifecyclePolicy:
-        LifecyclePolicyText: !Sub '{"rules":[{"rulePriority":1,"description":"Keep the ${ImagesToKeep} most recent images.","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":${ImagesToKeep}},"action":{"type":"expire"}}]}'
-
-  PaxminerTestSlackRepository:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: !Sub "${EcrRepositoryPrefix}/paxminer-test-slack"
-      LifecyclePolicy:
-        LifecyclePolicyText: !Sub '{"rules":[{"rulePriority":1,"description":"Keep the ${ImagesToKeep} most recent images.","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":${ImagesToKeep}},"action":{"type":"expire"}}]}'
-
-  PaxminerProdSyncRepository:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: !Sub "${EcrRepositoryPrefix}/paxminer-prod-sync"
-      LifecyclePolicy:
-        LifecyclePolicyText: !Sub '{"rules":[{"rulePriority":1,"description":"Keep the ${ImagesToKeep} most recent images.","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":${ImagesToKeep}},"action":{"type":"expire"}}]}'
-
-  PaxminerProdAchievementsRepository:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: !Sub "${EcrRepositoryPrefix}/paxminer-prod-achievements"
-      LifecyclePolicy:
-        LifecyclePolicyText: !Sub '{"rules":[{"rulePriority":1,"description":"Keep the ${ImagesToKeep} most recent images.","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":${ImagesToKeep}},"action":{"type":"expire"}}]}'
-
-  PaxminerProdScheduleRepository:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: !Sub "${EcrRepositoryPrefix}/paxminer-prod-schedule"
-      LifecyclePolicy:
-        LifecyclePolicyText: !Sub '{"rules":[{"rulePriority":1,"description":"Keep the ${ImagesToKeep} most recent images.","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":${ImagesToKeep}},"action":{"type":"expire"}}]}'
-
-  PaxminerProdSlackRepository:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: !Sub "${EcrRepositoryPrefix}/paxminer-prod-slack"
-      LifecyclePolicy:
-        LifecyclePolicyText: !Sub '{"rules":[{"rulePriority":1,"description":"Keep the ${ImagesToKeep} most recent images.","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":${ImagesToKeep}},"action":{"type":"expire"}}]}'
 
   GitHubDeployRole:
     Type: AWS::IAM::Role
