@@ -29,12 +29,11 @@ CREATE_CLAUSE = re.compile(
     r"^(?:ALGORITHM\s*=\s*\w+|DEFINER\s*=\s*\S+|SQL\s+SECURITY\s+\w+)\s+",
     re.IGNORECASE,
 )
-CREATE_OBJECT = re.compile(
-    r"^(TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?"
-    r"(?:[`'\"]?[A-Za-z0-9_]+[`'\"]?\s*\.\s*)?"
-    r"[`'\"]?([A-Za-z0-9_]+)",
+CREATE_KIND = re.compile(
+    r"^(TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?",
     re.IGNORECASE,
 )
+BARE_IDENT = re.compile(r"[A-Za-z0-9_$]+")
 REGION_NAME = re.compile(r"^[a-z0-9]+$")
 STAGES = ("test", "rehearsal", "prod")
 APP_REGION_NAMES = frozenset({"paxminer", "slackblast", "qsignups", "weaselbot"})
@@ -482,6 +481,27 @@ def _name_finding_text(statement: str) -> str:
     return re.sub(r"/\*!\d+\s*", "", statement).replace("*/", "")
 
 
+def _read_ident(text: str, index: int) -> tuple[str, int]:
+    """Read one identifier. A backtick runs to its closer; `` is an escape."""
+    if index < len(text) and text[index] == "`":
+        index += 1
+        chars: list[str] = []
+        while index < len(text):
+            if text[index] == "`":
+                if index + 1 < len(text) and text[index + 1] == "`":
+                    chars.append("`")
+                    index += 2
+                    continue
+                return "".join(chars), index + 1
+            chars.append(text[index])
+            index += 1
+        raise MigrationError("SQL has an unclosed identifier")
+    match = BARE_IDENT.match(text, index)
+    if match is None:
+        raise MigrationError("cannot name CREATE: " + " ".join(text.split())[:80])
+    return match.group(0), match.end()
+
+
 def object_name(statement: str) -> str | None:
     """Return the table or view a CREATE statement names.
 
@@ -499,10 +519,14 @@ def object_name(statement: str) -> str | None:
         if clause is None:
             break
         rest = rest[clause.end() :]
-    match = CREATE_OBJECT.match(rest)
-    if match is None:
+    kind = CREATE_KIND.match(rest)
+    if kind is None:
         raise MigrationError("cannot name CREATE: " + " ".join(text.split())[:80])
-    return match.group(2)
+    index = kind.end()
+    name, index = _read_ident(rest, index)
+    if index < len(rest) and rest[index] == ".":
+        name, index = _read_ident(rest, index + 1)
+    return name
 
 
 def created_names(migrations: list[Migration]) -> list[str]:

@@ -416,6 +416,10 @@ def test_created_names_finds_views_and_qualified_tables():
     assert _names(view) == ["v"]
     assert _names(dumped) == ["v"]
     assert _names("CREATE TABLE `f3ttown_test`.`aos` (id INT);") == ["aos"]
+    assert _names("CREATE TABLE `my-table` (id INT);") == ["my-table"]
+    assert _names("CREATE TABLE `t$x` (id INT);") == ["t$x"]
+    assert _names("CREATE TABLE `db`.`my-table` (id INT);") == ["my-table"]
+    assert _names("CREATE TABLE `na``me` (id INT);") == ["na`me"]
     assert _names("CREATE UNIQUE INDEX idx ON users (id);") == []
     with pytest.raises(MigrationError, match="cannot name"):
         _names("CREATE SOMETHING weird;")
