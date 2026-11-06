@@ -15,6 +15,7 @@ from migrate import (  # noqa: E402
     MigrationError,
     apply_pending,
     connection_settings,
+    created_names,
     derived_schema,
     discover,
     load_invocation,
@@ -291,6 +292,43 @@ def test_check_reports_pending_changed_and_current():
     assert current.ahead == []
     with pytest.raises(MigrationError, match="checksum"):
         plan_history([migration], {1: "zzz"})
+
+
+def _names(sql: str) -> list[str]:
+    return created_names([Migration(1, "baseline", Path("0001_baseline.sql"), "x", sql)])
+
+
+def test_created_names_finds_views_and_qualified_tables():
+    view = (
+        "CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`%` "
+        "SQL SECURITY DEFINER VIEW `v` AS SELECT 1;"
+    )
+    dumped = (
+        "/*!50001 CREATE ALGORITHM=UNDEFINED */\n"
+        "/*!50013 DEFINER=`root`@`%` SQL SECURITY DEFINER */\n"
+        "/*!50001 VIEW `v` AS select 1 */;"
+    )
+    assert _names(view) == ["v"]
+    assert _names(dumped) == ["v"]
+    assert _names("CREATE TABLE `f3ttown_test`.`aos` (id INT);") == ["aos"]
+    assert _names("CREATE UNIQUE INDEX idx ON users (id);") == []
+    with pytest.raises(MigrationError, match="cannot name"):
+        _names("CREATE SOMETHING weird;")
+    with pytest.raises(MigrationError, match="create nothing"):
+        mark_applied(
+            FakeCursor(),
+            "f3ttown_test",
+            [Migration(1, "baseline", Path("0001_baseline.sql"), "x", "SELECT 1;")],
+            1,
+            yes=False,
+        )
+
+
+def test_mark_applied_refuses_a_missing_view():
+    sql = "CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `v` AS SELECT 1;"
+    migration = Migration(1, "baseline", Path("0001_baseline.sql"), "abc", sql)
+    with pytest.raises(MigrationError, match="missing"):
+        mark_applied(FakeCursor(), "f3ttown_test", [migration], 1, yes=False)
 
 
 def test_mark_applied_dry_run_writes_nothing_and_yes_records_checksums():

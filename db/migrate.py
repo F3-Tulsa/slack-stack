@@ -21,9 +21,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 MIGRATION_FILE = re.compile(r"^(\d{4})_([a-z0-9_]+)\.sql$")
-CREATED_OBJECT = re.compile(
-    r"^CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?"
-    r"[`\"]?([A-Za-z0-9_]+)",
+CREATE_INDEX = re.compile(
+    r"^CREATE\s+(?:UNIQUE\s+|FULLTEXT\s+|SPATIAL\s+)?INDEX\b",
+    re.IGNORECASE,
+)
+CREATE_CLAUSE = re.compile(
+    r"^(?:ALGORITHM\s*=\s*\w+|DEFINER\s*=\s*\S+|SQL\s+SECURITY\s+\w+)\s+",
+    re.IGNORECASE,
+)
+CREATE_OBJECT = re.compile(
+    r"^(TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?"
+    r"(?:[`'\"]?[A-Za-z0-9_]+[`'\"]?\s*\.\s*)?"
+    r"[`'\"]?([A-Za-z0-9_]+)",
     re.IGNORECASE,
 )
 REGION_NAME = re.compile(r"^[a-z0-9]+$")
@@ -453,14 +462,42 @@ def recorded_or_none(cursor) -> dict[int, str] | None:
         raise
 
 
+def _name_finding_text(statement: str) -> str:
+    """Drop mysqldump version-comment markers. The executed statement is unchanged."""
+    return re.sub(r"/\*!\d+\s*", "", statement).replace("*/", "")
+
+
+def object_name(statement: str) -> str | None:
+    """Return the table or view a CREATE statement names.
+
+    ``None`` means the statement is not a CREATE, or it is a CREATE INDEX.
+    Any other CREATE that yields no name is an error.
+    """
+    text = _name_finding_text(statement).strip()
+    if not re.match(r"CREATE\b", text, re.IGNORECASE):
+        return None
+    if CREATE_INDEX.match(text):
+        return None
+    rest = re.sub(r"^CREATE\s+(?:OR\s+REPLACE\s+)?", "", text, count=1, flags=re.IGNORECASE)
+    while True:
+        clause = CREATE_CLAUSE.match(rest)
+        if clause is None:
+            break
+        rest = rest[clause.end() :]
+    match = CREATE_OBJECT.match(rest)
+    if match is None:
+        raise MigrationError("cannot name CREATE: " + " ".join(text.split())[:80])
+    return match.group(2)
+
+
 def created_names(migrations: list[Migration]) -> list[str]:
     """Table and view names from CREATE statements. This is not a SQL parser."""
     names: list[str] = []
     for migration in migrations:
         for statement in split_sql(migration.sql):
-            match = CREATED_OBJECT.match(statement)
-            if match:
-                names.append(match.group(1))
+            name = object_name(statement)
+            if name:
+                names.append(name)
     return names
 
 
@@ -479,11 +516,14 @@ def mark_applied(
     if version < 1 or version > highest:
         raise MigrationError(f"--mark-applied {version} is past the last file {highest:04d}")
     chosen = [migration for migration in migrations if migration.version <= version]
+    names = created_names(chosen)
+    if not names:
+        raise MigrationError("these files create nothing, so there is nothing to check")
     recorded = recorded_or_none(cursor)
     if recorded:
         raise MigrationError("schema_migrations already has rows")
     missing = []
-    for name in created_names(chosen):
+    for name in names:
         cursor.execute(
             """
             SELECT TABLE_NAME AS name FROM information_schema.TABLES
