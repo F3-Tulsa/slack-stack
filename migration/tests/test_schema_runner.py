@@ -21,6 +21,7 @@ from migrate import (  # noqa: E402
     load_invocation,
     main,
     mark_applied,
+    run,
     plan_history,
     split_sql,
 )
@@ -435,3 +436,121 @@ def test_mark_applied_refuses_rows_missing_tables_and_a_version_past_the_end():
         mark_applied(FakeCursor(), "f3ttown_test", [migration], 1, yes=False)
     with pytest.raises(MigrationError, match="past the last file"):
         mark_applied(FakeCursor(present={"users"}), "f3ttown_test", [migration], 2, yes=False)
+
+
+class Connection:
+    def __init__(self, cursor):
+        self.cursor_obj = cursor
+
+    def cursor(self):
+        return self.cursor_obj
+
+    def close(self):
+        return None
+
+
+class ContextCursor(FakeCursor):
+    def __init__(self, *args, use_error=None, bookkeeping_missing=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.use_error = use_error
+        self.bookkeeping_missing = bookkeeping_missing
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execute(self, sql, args=None):
+        text = " ".join(str(sql).split())
+        if text.startswith("USE") and self.use_error:
+            raise self.use_error
+        if self.bookkeeping_missing and text.startswith("SELECT version, checksum"):
+            raise RuntimeError("(1146, \"Table 'f3ttown_test.schema_migrations' doesn't exist\")")
+        return super().execute(sql, args)
+
+
+def _patch_connect(monkeypatch, cursor):
+    monkeypatch.setattr("migrate.connect", lambda _settings: Connection(cursor))
+
+
+def test_run_creates_the_database_with_unicode_collation(tmp_path, monkeypatch):
+    migrations = tmp_path / "migrations"
+    migrations.mkdir()
+    (migrations / "0001_alpha.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    cursor = ContextCursor()
+    _patch_connect(monkeypatch, cursor)
+    result = run(
+        migrations,
+        "f3ttown_test",
+        {"host": "h", "port": 4000, "user": "u", "password": "p", "tls": True},
+        to=None,
+        check=False,
+    )
+    assert result.applied == [1]
+    assert cursor.statements[0] == (
+        "CREATE DATABASE IF NOT EXISTS `f3ttown_test` "
+        "DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+    )
+
+
+def test_check_exit_codes_write_nothing(tmp_path, monkeypatch, capsys):
+    migrations = tmp_path / "migrations"
+    migrations.mkdir()
+    (migrations / "0001_alpha.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    checksum = discover(migrations)[0].checksum
+    env_file = _deploy_file(tmp_path / ".env.deploy.test", "test")
+    cases = [
+        (ContextCursor(use_error=RuntimeError("(1049, \"Unknown database 'f3ttown_test'\")")), 1),
+        (ContextCursor(bookkeeping_missing=True), 1),
+        (ContextCursor(recorded=[{"version": 1, "checksum": checksum}]), 0),
+        (ContextCursor(recorded=[{"version": 1, "checksum": "zzz"}]), 1),
+        (
+            ContextCursor(
+                recorded=[
+                    {"version": 1, "checksum": checksum},
+                    {"version": 9, "checksum": "future"},
+                ]
+            ),
+            0,
+        ),
+    ]
+    for cursor, expected in cases:
+        _patch_connect(monkeypatch, cursor)
+        code = main(
+            ["--env-file", str(env_file), "--migrations", str(migrations), "--check"]
+        )
+        assert code == expected
+        assert not any(statement.startswith("CREATE") for statement in cursor.statements)
+        assert not any(statement.startswith("INSERT") for statement in cursor.statements)
+        capsys.readouterr()
+
+
+def test_schema_assertion_must_match_the_derived_name(tmp_path, monkeypatch, capsys):
+    env_file = _deploy_file(tmp_path / ".env.deploy.test", "test")
+    monkeypatch.setattr("migrate.connect", lambda _settings: (_ for _ in ()).throw(AssertionError("connect")))
+    code = main(["--env-file", str(env_file), "--schema", "f3ttown_prod"])
+    assert code == 1
+    assert "does not match" in capsys.readouterr().err
+
+
+def test_rehearsal_file_reads_target_prefix(tmp_path):
+    env_file = tmp_path / ".env.migration.rehearsal"
+    env_file.write_text(
+        "\n".join(
+            [
+                "F3_REGION_NAME=f3ttown",
+                "TARGET_HOST=target.example",
+                "TARGET_USER=tu",
+                "TARGET_PASSWORD=tp",
+                "TARGET_PORT=4000",
+                "TARGET_TLS_ENABLED=true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    schema, settings = load_invocation(_args(env_file=env_file, prefix="TARGET"))
+    assert schema == "f3ttown_rehearsal"
+    assert settings["host"] == "target.example"
+    assert settings["user"] == "tu"
+    assert settings["password"] == "tp"
