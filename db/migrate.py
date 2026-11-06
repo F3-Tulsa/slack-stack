@@ -301,20 +301,56 @@ def ensure_bookkeeping(cursor) -> None:
     )
 
 
-def apply_pending(cursor, migrations: list[Migration], *, to: int | None = None) -> list[int]:
-    """Apply files whose version is not recorded. Return the versions applied."""
-    applied = _applied(cursor)
+@dataclass(frozen=True)
+class History:
+    pending: list[int]
+    ahead: list[int]
+
+
+@dataclass(frozen=True)
+class ApplyResult:
+    applied: list[int]
+    ahead: list[int]
+
+
+def plan_history(migrations: list[Migration], recorded: dict[int, str] | None) -> History:
+    """Compare files with what the schema has recorded.
+
+    A missing bookkeeping table (``recorded is None``) means every file is
+    pending. A recorded checksum that does not match the file is an error.
+    A recorded version with no file means the schema is ahead of this code.
+    """
+    if recorded is None:
+        return History([migration.version for migration in migrations], [])
+    by_version = {migration.version: migration for migration in migrations}
+    ahead: list[int] = []
+    for version, checksum in sorted(recorded.items()):
+        migration = by_version.get(version)
+        if migration is None:
+            ahead.append(version)
+            continue
+        if migration.checksum != checksum:
+            raise MigrationError(
+                f"{version:04d}_{migration.name} checksum changed "
+                f"after it was applied ({checksum} != {migration.checksum})"
+            )
+    pending = [
+        migration.version
+        for migration in migrations
+        if migration.version not in recorded
+    ]
+    return History(pending, ahead)
+
+
+def apply_pending(cursor, migrations: list[Migration], *, to: int | None = None) -> ApplyResult:
+    """Apply files whose version is not recorded. Validate every recorded row first."""
+    recorded = _applied(cursor)
+    history = plan_history(migrations, recorded)
     done: list[int] = []
     for migration in migrations:
+        if migration.version not in history.pending:
+            continue
         if to is not None and migration.version > to:
-            break
-        recorded = applied.get(migration.version)
-        if recorded is not None:
-            if recorded != migration.checksum:
-                raise MigrationError(
-                    f"{migration.version:04d}_{migration.name} checksum changed "
-                    f"after it was applied ({recorded} != {migration.checksum})"
-                )
             continue
         for statement in split_sql(migration.sql):
             try:
@@ -336,7 +372,7 @@ def apply_pending(cursor, migrations: list[Migration], *, to: int | None = None)
             ),
         )
         done.append(migration.version)
-    return done
+    return ApplyResult(done, history.ahead)
 
 
 def connect(settings: dict):
@@ -384,12 +420,37 @@ def load_invocation(args) -> tuple[str, dict]:
     )
 
 
-def run(directory: Path, schema: str, settings: dict, *, to: int | None) -> list[int]:
+def _missing_relation(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "doesn't exist" in text or "does not exist" in text or "unknown database" in text
+
+
+def recorded_or_none(cursor) -> dict[int, str] | None:
+    try:
+        return _applied(cursor)
+    except Exception as exc:
+        if _missing_relation(exc):
+            return None
+        raise
+
+
+def run(directory: Path, schema: str, settings: dict, *, to: int | None, check: bool) -> History | ApplyResult:
     migrations = discover(directory)
     conn = connect(settings)
     try:
         with conn.cursor() as cursor:
-            cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{schema}`")
+            if check:
+                try:
+                    cursor.execute(f"USE `{schema}`")
+                except Exception as exc:
+                    if _missing_relation(exc):
+                        return plan_history(migrations, None)
+                    raise
+                return plan_history(migrations, recorded_or_none(cursor))
+            cursor.execute(
+                f"CREATE DATABASE IF NOT EXISTS `{schema}` "
+                "DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+            )
             cursor.execute(f"USE `{schema}`")
             ensure_bookkeeping(cursor)
             return apply_pending(cursor, migrations, to=to)
@@ -427,15 +488,38 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Required when the stage is prod",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Report pending and ahead versions without writing",
+    )
     args = parser.parse_args(argv)
     try:
         schema, settings = load_invocation(args)
-        applied = run(args.migrations, schema, settings, to=args.to)
+        result = run(args.migrations, schema, settings, to=args.to, check=args.check)
     except MigrationError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    if applied:
-        print("applied " + ", ".join(f"{n:04d}" for n in applied))
+    if isinstance(result, History):
+        if result.ahead:
+            print(
+                "schema is ahead of this code: "
+                + ", ".join(f"{n:04d}" for n in result.ahead),
+                file=sys.stderr,
+            )
+        if result.pending:
+            print("pending " + ", ".join(f"{n:04d}" for n in result.pending))
+            return 1
+        print("schema is current")
+        return 0
+    if result.ahead:
+        print(
+            "warning: schema is ahead of this code: "
+            + ", ".join(f"{n:04d}" for n in result.ahead),
+            file=sys.stderr,
+        )
+    if result.applied:
+        print("applied " + ", ".join(f"{n:04d}" for n in result.applied))
     else:
         print("no pending migrations")
     return 0

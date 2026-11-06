@@ -18,6 +18,7 @@ from migrate import (  # noqa: E402
     derived_schema,
     discover,
     load_invocation,
+    plan_history,
     split_sql,
 )
 
@@ -191,12 +192,12 @@ def test_apply_records_only_after_success_and_stops_at_to():
     second = Migration(2, "beta", Path("0002_beta.sql"), "def", "SELECT 3;")
     cursor = FakeCursor()
     applied = apply_pending(cursor, [first, second], to=1)
-    assert applied == [1]
+    assert applied.applied == [1]
     assert cursor.statements == ["SELECT 1", "SELECT 2"]
     assert cursor.recorded[0]["version"] == 1
 
     again = apply_pending(cursor, [first, second], to=None)
-    assert again == [2]
+    assert again.applied == [2]
 
 
 def test_apply_refuses_a_changed_checksum_and_skips_the_insert_on_failure():
@@ -212,3 +213,38 @@ def test_apply_refuses_a_changed_checksum_and_skips_the_insert_on_failure():
     with pytest.raises(MigrationError, match="failed on"):
         apply_pending(fresh, [failing])
     assert fresh.recorded == []
+
+
+def test_changed_checksum_past_to_fails_before_apply():
+    first = Migration(1, "alpha", Path("0001_alpha.sql"), "abc", "SELECT 1;")
+    second = Migration(2, "beta", Path("0002_beta.sql"), "def", "SELECT 2;")
+    cursor = FakeCursor([{"version": 2, "checksum": "stale"}])
+    with pytest.raises(MigrationError, match="0002_beta"):
+        apply_pending(cursor, [first, second], to=1)
+    assert cursor.statements == []
+
+
+def test_ahead_version_warns_and_applies_nothing_else():
+    first = Migration(1, "alpha", Path("0001_alpha.sql"), "abc", "SELECT 1;")
+    cursor = FakeCursor(
+        [
+            {"version": 1, "checksum": "abc"},
+            {"version": 9, "checksum": "future"},
+        ]
+    )
+    result = apply_pending(cursor, [first])
+    assert result.applied == []
+    assert result.ahead == [9]
+    assert cursor.statements == []
+
+
+def test_check_reports_pending_changed_and_current():
+    migration = Migration(1, "alpha", Path("0001_alpha.sql"), "abc", "SELECT 1;")
+    pending = plan_history([migration], None)
+    assert pending.pending == [1]
+    assert plan_history([migration], {}).pending == [1]
+    current = plan_history([migration], {1: "abc"})
+    assert current.pending == []
+    assert current.ahead == []
+    with pytest.raises(MigrationError, match="checksum"):
+        plan_history([migration], {1: "zzz"})
