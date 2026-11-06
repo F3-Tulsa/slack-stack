@@ -642,38 +642,69 @@ def get_region_record(team_id: str, body, context, client, logger) -> Region:
 
     team_domain = safe_get(body, "team", "domain")
 
-    if not region_record:
-        try:
-            team_info = client.team_info()
-            team_name = team_info["team"]["name"]
-        except Exception as exc:
-            logger.warning(
-                "team_info failed for team_id=%s; using domain=%s: %s",
-                team_id,
-                team_domain,
-                exc,
-                exc_info=True,
-            )
-            team_name = team_domain
-        region_name = (os.environ.get("F3_REGION_NAME") or "").strip()
-        if not region_name:
-            raise RuntimeError("F3_REGION_NAME is required to create a region_config row")
-        region_record: Region = DbManager.create_record(
-            Region(
-                region=region_name,
-                schema_name=paxminer_schema_name(),
-                team_id=team_id,
-                bot_token=encrypt_field(context["bot_token"]),
-                workspace_name=team_name,
-                slack_token="",
-                timezone=os.environ.get("TIMEZONE") or "America/Chicago",
-                email_enabled=0,
-                email_option_show=0,
-                editing_locked=0,
-            )
-        )
-        REGION_RECORDS[team_id] = region_record
+    if region_record:
+        return region_record
 
+    try:
+        team_info = client.team_info()
+        team_name = team_info["team"]["name"]
+    except Exception as exc:
+        logger.warning(
+            "team_info failed for team_id=%s; using domain=%s: %s",
+            team_id,
+            team_domain,
+            exc,
+            exc_info=True,
+        )
+        team_name = team_domain
+    region_name = (os.environ.get("F3_REGION_NAME") or "").strip()
+    if not region_name:
+        raise RuntimeError("F3_REGION_NAME is required to create a region_config row")
+    owned = DbManager.find_records(Region, [Region.region == region_name])
+    if owned:
+        row = owned[0]
+        existing = (getattr(row, "team_id", None) or "").strip()
+        if existing and existing != team_id:
+            logger.error(
+                "region %s belongs to team_id %s; refusing team_id %s",
+                region_name,
+                existing,
+                team_id,
+            )
+            raise RuntimeError(
+                f"region {region_name} belongs to team_id {existing}; refusing team_id {team_id}"
+            )
+        token = encrypt_field(context["bot_token"])
+        DbManager.update_records(
+            Region,
+            [Region.region == region_name],
+            {
+                Region.team_id: team_id,
+                Region.bot_token: token,
+                Region.workspace_name: team_name,
+            },
+        )
+        row.team_id = team_id
+        row.bot_token = token
+        row.workspace_name = team_name
+        REGION_RECORDS[team_id] = row
+        return row
+
+    region_record = DbManager.create_record(
+        Region(
+            region=region_name,
+            schema_name=paxminer_schema_name(),
+            team_id=team_id,
+            bot_token=encrypt_field(context["bot_token"]),
+            workspace_name=team_name,
+            slack_token="",
+            timezone=os.environ.get("TIMEZONE") or "America/Chicago",
+            email_enabled=0,
+            email_option_show=0,
+            editing_locked=0,
+        )
+    )
+    REGION_RECORDS[team_id] = region_record
     return region_record
 
 
