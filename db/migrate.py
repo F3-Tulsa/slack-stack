@@ -633,7 +633,15 @@ def main(argv: list[str] | None = None) -> int:
             conn = connect(settings)
             try:
                 with conn.cursor() as cursor:
-                    cursor.execute(f"USE `{schema}`")
+                    try:
+                        cursor.execute(f"USE `{schema}`")
+                    except Exception as exc:
+                        if _missing_relation(exc):
+                            raise MigrationError(
+                                f"schema {schema} does not exist; "
+                                "--mark-applied adopts an existing schema"
+                            ) from exc
+                        raise
                     marked = mark_applied(
                         cursor,
                         schema,
@@ -647,7 +655,11 @@ def main(argv: list[str] | None = None) -> int:
             print(verb + " " + ", ".join(f"{n:04d}" for n in marked))
             return 0
         result = run(args.migrations, schema, settings, to=args.to, check=args.check)
-    except MigrationError as exc:
+    except Exception as exc:
+        import pymysql
+
+        if not isinstance(exc, (MigrationError, pymysql.err.MySQLError)):
+            raise
         print(f"error: {exc}", file=sys.stderr)
         return 1
     if isinstance(result, History):

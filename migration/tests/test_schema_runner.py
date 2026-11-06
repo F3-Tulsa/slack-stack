@@ -19,6 +19,7 @@ from migrate import (  # noqa: E402
     derived_schema,
     discover,
     load_invocation,
+    main,
     mark_applied,
     plan_history,
     split_sql,
@@ -133,6 +134,69 @@ def test_connection_fields_are_not_borrowed_across_prefixes():
     env = {"DATABASE_HOST": "db.example", "TARGET_PASSWORD": "secret"}
     with pytest.raises(MigrationError, match="DATABASE_USER"):
         connection_settings(env, "DATABASE")
+
+
+def test_main_reports_connection_errors(tmp_path, monkeypatch, capsys):
+    import pymysql
+
+    env_file = _deploy_file(tmp_path / ".env.deploy.test", "test")
+    migrations = tmp_path / "migrations"
+    migrations.mkdir()
+
+    def boom(_settings):
+        raise pymysql.err.OperationalError(2003, "Can't connect")
+
+    monkeypatch.setattr("migrate.connect", boom)
+    code = main(
+        ["--env-file", str(env_file), "--migrations", str(migrations)]
+    )
+    captured = capsys.readouterr()
+    assert code == 1
+    assert captured.err.startswith("error:")
+    assert "secret" not in captured.err
+
+
+def test_mark_applied_missing_schema_is_a_runner_error(tmp_path, monkeypatch, capsys):
+    import pymysql
+
+    env_file = _deploy_file(tmp_path / ".env.deploy.test", "test")
+    migrations = tmp_path / "migrations"
+    migrations.mkdir()
+    (migrations / "0001_alpha.sql").write_text("CREATE TABLE users (id INT);\n", encoding="utf-8")
+
+    class Cursor:
+        def execute(self, sql, args=None):
+            if str(sql).startswith("USE"):
+                raise pymysql.err.OperationalError(1049, "Unknown database 'f3ttown_test'")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class Conn:
+        def cursor(self):
+            return Cursor()
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr("migrate.connect", lambda _settings: Conn())
+    code = main(
+        [
+            "--env-file",
+            str(env_file),
+            "--migrations",
+            str(migrations),
+            "--mark-applied",
+            "1",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "does not exist" in captured.err
+    assert captured.err.startswith("error:")
 
 
 def test_from_environment_stage_must_match(monkeypatch):
