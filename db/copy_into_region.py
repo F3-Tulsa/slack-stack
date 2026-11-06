@@ -72,15 +72,7 @@ CREATE TABLE IF NOT EXISTS region_config (
     log_channel VARCHAR(100) NULL,
     team_id VARCHAR(100) NULL,
     workspace_name VARCHAR(100) NULL,
-    paxminer_schema VARCHAR(100) NULL,
     sb_bot_token VARCHAR(512) NULL,
-    sb_send_achievements TINYINT NULL,
-    sb_achievement_channel VARCHAR(100) NULL,
-    sb_NO_POST_THRESHOLD INT NULL,
-    sb_REMINDER_WEEKS INT NULL,
-    sb_HOME_AO_CAPTURE INT NULL,
-    sb_NO_Q_THRESHOLD_WEEKS INT NULL,
-    sb_NO_Q_THRESHOLD_POSTS INT NULL,
     email_enabled TINYINT NULL,
     email_server VARCHAR(100) NULL,
     email_server_port INT NULL,
@@ -99,11 +91,9 @@ CREATE TABLE IF NOT EXISTS region_config (
     welcome_dm_template JSON NULL,
     welcome_channel_enable TINYINT NULL,
     welcome_channel VARCHAR(100) NULL,
-    send_aoq_reports TINYINT NULL,
-    default_siteq VARCHAR(45) NULL,
     post_achievements_to_ao TINYINT NULL,
-    created DATETIME NULL,
-    updated DATETIME NULL,
+    created DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+    updated DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (region)
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 """
@@ -213,15 +203,13 @@ def copy_region_config(cursor, *, yes: bool) -> str:
             comments, send_achievements, region_achievements_channel,
             NO_POST_THRESHOLD, REMINDER_WEEKS, HOME_AO_CAPTURE,
             NO_Q_THRESHOLD_WEEKS, NO_Q_THRESHOLD_POSTS, timezone, log_channel,
-            team_id, workspace_name, paxminer_schema, sb_bot_token,
-            sb_send_achievements, sb_achievement_channel, sb_NO_POST_THRESHOLD,
-            sb_REMINDER_WEEKS, sb_HOME_AO_CAPTURE, sb_NO_Q_THRESHOLD_WEEKS,
-            sb_NO_Q_THRESHOLD_POSTS, email_enabled, email_server, email_server_port,
+            team_id, workspace_name, sb_bot_token,
+            email_enabled, email_server, email_server_port,
             email_user, email_password, email_to, email_option_show, postie_format,
             editing_locked, default_destination, backblast_moleskin_template,
             preblast_moleskin_template, strava_enabled, custom_fields,
             welcome_dm_enable, welcome_dm_template, welcome_channel_enable,
-            welcome_channel, send_aoq_reports, default_siteq, post_achievements_to_ao,
+            welcome_channel, post_achievements_to_ao,
             created, updated
         )
         SELECT
@@ -229,16 +217,14 @@ def copy_region_config(cursor, *, yes: bool) -> str:
             p.scrape_backblasts, p.comments, p.send_achievements, p.achievement_channel,
             p.NO_POST_THRESHOLD, p.REMINDER_WEEKS, p.HOME_AO_CAPTURE,
             p.NO_Q_THRESHOLD_WEEKS, p.NO_Q_THRESHOLD_POSTS, p.timezone, p.log_channel,
-            s.team_id, s.workspace_name, s.paxminer_schema, s.bot_token,
-            s.send_achievements, s.achievement_channel, s.NO_POST_THRESHOLD,
-            s.REMINDER_WEEKS, s.HOME_AO_CAPTURE, s.NO_Q_THRESHOLD_WEEKS,
-            s.NO_Q_THRESHOLD_POSTS, s.email_enabled, s.email_server, s.email_server_port,
+            s.team_id, s.workspace_name, s.bot_token,
+            s.email_enabled, s.email_server, s.email_server_port,
             s.email_user, s.email_password, s.email_to, s.email_option_show,
             s.postie_format, s.editing_locked, s.default_destination,
             s.backblast_moleskin_template, s.preblast_moleskin_template,
             s.strava_enabled, s.custom_fields, s.welcome_dm_enable, s.welcome_dm_template,
-            s.welcome_channel_enable, s.welcome_channel, s.send_aoq_reports,
-            s.default_siteq, s.post_achievements_to_ao, s.created, s.updated
+            s.welcome_channel_enable, s.welcome_channel,
+            s.post_achievements_to_ao, s.created, s.updated
         FROM paxminer_test.regions p
         LEFT JOIN slackblast_test.regions s ON s.paxminer_schema = p.schema_name
         WHERE p.region = 'f3ttown'
