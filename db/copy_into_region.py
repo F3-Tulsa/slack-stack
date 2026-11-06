@@ -51,6 +51,63 @@ BOLT_TABLES = ("slack_bots", "slack_installations", "slack_oauth_states")
 VIEWS = ("vw_aos_sort", "vw_master_events", "vw_weekly_events")
 DEFINER = re.compile(r"\s*DEFINER\s*=\s*\S+", re.IGNORECASE)
 
+# Not a numbered migration. 0001 is reserved for the rehearsed baseline.
+REGION_CONFIG_DDL = """
+CREATE TABLE IF NOT EXISTS region_config (
+    region VARCHAR(45) NOT NULL,
+    schema_name VARCHAR(45) NULL,
+    active TINYINT NULL,
+    slack_token VARCHAR(512) NOT NULL,
+    contact VARCHAR(45) NULL,
+    scrape_backblasts TINYINT NULL,
+    comments TEXT NULL,
+    send_achievements TINYINT NULL,
+    region_achievements_channel VARCHAR(100) NULL,
+    NO_POST_THRESHOLD INT NULL,
+    REMINDER_WEEKS INT NULL,
+    HOME_AO_CAPTURE INT NULL,
+    NO_Q_THRESHOLD_WEEKS INT NULL,
+    NO_Q_THRESHOLD_POSTS INT NULL,
+    timezone VARCHAR(45) NOT NULL,
+    log_channel VARCHAR(100) NULL,
+    team_id VARCHAR(100) NULL,
+    workspace_name VARCHAR(100) NULL,
+    paxminer_schema VARCHAR(100) NULL,
+    sb_bot_token VARCHAR(512) NULL,
+    sb_send_achievements TINYINT NULL,
+    sb_achievement_channel VARCHAR(100) NULL,
+    sb_NO_POST_THRESHOLD INT NULL,
+    sb_REMINDER_WEEKS INT NULL,
+    sb_HOME_AO_CAPTURE INT NULL,
+    sb_NO_Q_THRESHOLD_WEEKS INT NULL,
+    sb_NO_Q_THRESHOLD_POSTS INT NULL,
+    email_enabled TINYINT NULL,
+    email_server VARCHAR(100) NULL,
+    email_server_port INT NULL,
+    email_user VARCHAR(100) NULL,
+    email_password LONGTEXT NULL,
+    email_to VARCHAR(100) NULL,
+    email_option_show TINYINT NULL,
+    postie_format TINYINT NULL,
+    editing_locked TINYINT NULL,
+    default_destination VARCHAR(30) NULL,
+    backblast_moleskin_template JSON NULL,
+    preblast_moleskin_template JSON NULL,
+    strava_enabled TINYINT NULL,
+    custom_fields JSON NULL,
+    welcome_dm_enable TINYINT NULL,
+    welcome_dm_template JSON NULL,
+    welcome_channel_enable TINYINT NULL,
+    welcome_channel VARCHAR(100) NULL,
+    send_aoq_reports TINYINT NULL,
+    default_siteq VARCHAR(45) NULL,
+    post_achievements_to_ao TINYINT NULL,
+    created DATETIME NULL,
+    updated DATETIME NULL,
+    PRIMARY KEY (region)
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+"""
+
 
 def guard(path: Path) -> tuple[str, dict]:
     """Only the test env file, and only f3ttown_test."""
@@ -143,11 +200,12 @@ def copy_views(cursor, *, yes: bool) -> list[str]:
 
 
 def copy_region_config(cursor, *, yes: bool) -> str:
+    created = ""
     if not _table_exists(cursor, TARGET, "region_config"):
         if yes:
-            raise MigrationError("region_config is missing; run db/migrate.py first")
-        return "region_config missing until db/migrate.py runs"
-    if _count(cursor, TARGET, "region_config"):
+            cursor.execute(REGION_CONFIG_DDL)
+        created = "create region_config\n"
+    elif _count(cursor, TARGET, "region_config"):
         return "skip region_config: already has a row"
     insert = f"""
         INSERT INTO `{TARGET}`.region_config (
@@ -187,7 +245,7 @@ def copy_region_config(cursor, *, yes: bool) -> str:
     """
     if yes:
         cursor.execute(insert)
-    return "insert f3ttown into region_config from paxminer_test and slackblast_test"
+    return created + "insert f3ttown into region_config from paxminer_test and slackblast_test"
 
 
 def run_copy(cursor, *, yes: bool) -> list[str]:
