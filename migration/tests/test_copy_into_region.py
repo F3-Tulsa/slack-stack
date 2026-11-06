@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
 import pytest
 
 _REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_REPO / "migration"))
 sys.path.insert(0, str(_REPO / "db"))
 
-from copy_into_region import REGION_CONFIG_DDL, guard  # noqa: E402
+from copy_into_region import (  # noqa: E402
+    REGION_CONFIG_DDL,
+    TARGET,
+    copy_bolt,
+    copy_region_config,
+    copy_table,
+    guard,
+)
 from migrate import MigrationError  # noqa: E402
 
 
@@ -40,6 +49,85 @@ def test_guard_refuses_a_prod_env_file(tmp_path: Path):
     path.write_text("F3_REGION_NAME=f3ttown\nTARGET_HOST=h\nTARGET_USER=u\nTARGET_PASSWORD=p\n", encoding="utf-8")
     with pytest.raises(MigrationError, match="not a test"):
         guard(path)
+
+
+class FakeCursor:
+    def __init__(self, tables, counts, region_counts=None, columns=None):
+        self.tables = set(tables)
+        self.counts = dict(counts)
+        self.region_counts = region_counts or {}
+        self.columns = columns or {}
+        self.executed = []
+        self._one = None
+        self._many = []
+
+    def execute(self, sql, params=None):
+        self.executed.append(sql)
+        if "information_schema.TABLES" in sql:
+            schema, table = params
+            self._one = {"name": table} if (schema, table) in self.tables else None
+        elif "information_schema.COLUMNS" in sql:
+            schema, table = params
+            self._many = [{"name": name} for name in self.columns.get((schema, table), [])]
+        elif "COUNT(*)" in sql and "WHERE" in sql:
+            self._one = {"c": self.region_counts.get(params, 0)}
+        elif "COUNT(*)" in sql:
+            match = re.search(r"FROM `([^`]+)`.`([^`]+)`", sql)
+            self._one = {"c": self.counts.get((match.group(1), match.group(2)), 0)}
+        elif "CREATE TABLE IF NOT EXISTS region_config" in sql:
+            self.tables.add((TARGET, "region_config"))
+            self.counts[(TARGET, "region_config")] = 0
+        else:
+            self._one = None
+
+    def fetchone(self):
+        return self._one
+
+    def fetchall(self):
+        return self._many
+
+
+def test_copy_table_refuses_a_count_mismatch():
+    cursor = FakeCursor(
+        tables={(TARGET, "qsignups_master"), ("qsignups_test", "qsignups_master")},
+        counts={(TARGET, "qsignups_master"): 1, ("qsignups_test", "qsignups_master"): 2},
+    )
+    with pytest.raises(MigrationError, match="drop it in f3ttown_test"):
+        copy_table(cursor, "qsignups_test", "qsignups_master", yes=False)
+
+
+def test_second_run_does_not_insert_oauth_states():
+    cursor = FakeCursor(
+        tables={
+            (TARGET, "slack_oauth_states"),
+            ("slackblast_test", "slack_oauth_states"),
+            ("qsignups_test", "slack_oauth_states"),
+        },
+        counts={
+            (TARGET, "slack_oauth_states"): 1,
+            ("slackblast_test", "slack_oauth_states"): 1,
+            ("qsignups_test", "slack_oauth_states"): 2,
+        },
+        columns={("qsignups_test", "slack_oauth_states"): ["id", "state"]},
+    )
+    copy_bolt(cursor, "slack_oauth_states", yes=True)
+    assert not any(sql.strip().upper().startswith("INSERT") for sql in cursor.executed)
+
+
+def test_region_config_refuses_the_wrong_number_of_source_rows():
+    cursor = FakeCursor(tables=set(), counts={}, region_counts={("f3ttown",): 1, (TARGET,): 0})
+    with pytest.raises(MigrationError, match="expected 1 row, found 0"):
+        copy_region_config(cursor, yes=False)
+    cursor.region_counts[(TARGET,)] = 2
+    with pytest.raises(MigrationError, match="expected 1 row, found 2"):
+        copy_region_config(cursor, yes=False)
+
+
+def test_region_config_is_created_when_missing():
+    cursor = FakeCursor(tables=set(), counts={}, region_counts={("f3ttown",): 1, (TARGET,): 1})
+    note = copy_region_config(cursor, yes=True)
+    assert "create region_config" in note
+    assert any("CREATE TABLE IF NOT EXISTS region_config" in sql for sql in cursor.executed)
 
 
 def test_guard_refuses_any_schema_but_f3ttown_test(tmp_path: Path):

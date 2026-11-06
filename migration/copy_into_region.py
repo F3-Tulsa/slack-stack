@@ -18,8 +18,8 @@ import re
 import sys
 from pathlib import Path
 
-_DB = Path(__file__).resolve().parent
-sys.path.insert(0, str(_DB))
+_REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_REPO / "db"))
 
 from migrate import (  # noqa: E402
     MigrationError,
@@ -139,12 +139,24 @@ def _columns(cursor, schema: str, table: str) -> list[str]:
 
 
 def copy_table(cursor, source: str, table: str, *, yes: bool) -> str:
+    source_count = _count(cursor, source, table)
     if _table_exists(cursor, TARGET, table):
-        return f"skip {TARGET}.{table}: already present"
+        target_count = _count(cursor, TARGET, table)
+        if target_count != source_count:
+            raise MigrationError(
+                f"{table}: target has {target_count} rows and source has {source_count}; "
+                "drop it in f3ttown_test and run again"
+            )
+        return f"skip {TARGET}.{table}: source {source_count} target {target_count}"
     if yes:
         cursor.execute(f"CREATE TABLE `{TARGET}`.`{table}` LIKE `{source}`.`{table}`")
         cursor.execute(f"INSERT INTO `{TARGET}`.`{table}` SELECT * FROM `{source}`.`{table}`")
-    return f"copy {source}.{table} -> {TARGET}.{table} ({_count(cursor, source, table)} rows)"
+        target_count = _count(cursor, TARGET, table)
+        return (
+            f"copy {source}.{table} -> {TARGET}.{table} "
+            f"(source {source_count}, target {target_count})"
+        )
+    return f"copy {source}.{table} -> {TARGET}.{table} ({source_count} rows)"
 
 
 def copy_bolt(cursor, table: str, *, yes: bool) -> list[str]:
@@ -153,7 +165,17 @@ def copy_bolt(cursor, table: str, *, yes: bool) -> list[str]:
     if not _table_exists(cursor, TARGET, table):
         notes.append(copy_table(cursor, "slackblast_test", table, yes=yes))
     else:
-        notes.append(f"skip {TARGET}.{table}: already present, QSignups rows still checked")
+        source_count = _count(cursor, "slackblast_test", table)
+        target_count = _count(cursor, TARGET, table)
+        if target_count == 0 and source_count > 0:
+            raise MigrationError(
+                f"{table}: target has 0 rows and source has {source_count}; "
+                "drop it in f3ttown_test and run again"
+            )
+        notes.append(f"skip {TARGET}.{table}: source {source_count} target {target_count}")
+    if table == "slack_oauth_states":
+        notes.append("skip qsignups_test.slack_oauth_states: single-use, not merged")
+        return notes
     columns = [name for name in _columns(cursor, "qsignups_test", table) if name != "id"]
     quoted = ", ".join(f"`{name}`" for name in columns)
     insert = (
@@ -189,7 +211,19 @@ def copy_views(cursor, *, yes: bool) -> list[str]:
     return notes
 
 
+def _require_one_region_row(cursor, schema: str, where: str, param: str) -> None:
+    cursor.execute(
+        f"SELECT COUNT(*) AS c FROM `{schema}`.`regions` WHERE {where}",
+        (param,),
+    )
+    count = int(cursor.fetchone()["c"])
+    if count != 1:
+        raise MigrationError(f"{schema}.regions for {param}: expected 1 row, found {count}")
+
+
 def copy_region_config(cursor, *, yes: bool) -> str:
+    _require_one_region_row(cursor, "paxminer_test", "region=%s", "f3ttown")
+    _require_one_region_row(cursor, "slackblast_test", "paxminer_schema=%s", TARGET)
     created = ""
     if not _table_exists(cursor, TARGET, "region_config"):
         if yes:
@@ -226,7 +260,7 @@ def copy_region_config(cursor, *, yes: bool) -> str:
             s.welcome_channel_enable, s.welcome_channel,
             s.post_achievements_to_ao, s.created, s.updated
         FROM paxminer_test.regions p
-        LEFT JOIN slackblast_test.regions s ON s.paxminer_schema = p.schema_name
+        INNER JOIN slackblast_test.regions s ON s.paxminer_schema = p.schema_name
         WHERE p.region = 'f3ttown'
     """
     if yes:
