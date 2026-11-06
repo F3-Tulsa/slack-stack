@@ -285,6 +285,9 @@ def split_sql(text: str) -> list[str]:
             continue
         buf.append(ch)
         i += 1
+    if in_block or in_single or in_double or in_tick:
+        kind = "comment" if in_block else ("string" if in_single or in_double else "identifier")
+        raise MigrationError(f"SQL ends inside an unclosed {kind}")
     tail = _trim_leading("".join(buf))
     if tail:
         statements.append(tail)

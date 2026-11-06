@@ -218,6 +218,18 @@ def test_split_sql_skips_plain_comments_and_rejects_delimiter():
         split_sql("DELIMITER $$\nSELECT 1;\n")
 
 
+def test_split_sql_refuses_unclosed_comment_string_and_identifier():
+    with pytest.raises(MigrationError, match="comment"):
+        split_sql("CREATE TABLE a (id INT);\n/* unclosed\nCREATE TABLE b (id INT);\n")
+    with pytest.raises(MigrationError, match="string"):
+        split_sql("SELECT 'abc;\n")
+    with pytest.raises(MigrationError, match="string"):
+        split_sql('SELECT "abc;\n')
+    with pytest.raises(MigrationError, match="identifier"):
+        split_sql("SELECT `abc;\n")
+    assert split_sql("SELECT 1; -- note") == ["SELECT 1"]
+
+
 def test_apply_records_only_after_success_and_stops_at_to():
     first = Migration(1, "alpha", Path("0001_alpha.sql"), "abc", "SELECT 1; SELECT 2;")
     second = Migration(2, "beta", Path("0002_beta.sql"), "def", "SELECT 3;")
