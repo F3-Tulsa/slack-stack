@@ -40,7 +40,7 @@ def get_engine(echo=False, schema=None) -> Engine:
     host = os.environ[constants.DATABASE_HOST]
     user = quote_plus(os.environ[constants.ADMIN_DATABASE_USER])
     passwd = quote_plus(os.environ[constants.ADMIN_DATABASE_PASSWORD])
-    database = schema or os.environ[constants.ADMIN_DATABASE_SCHEMA]
+    database = schema or os.environ[constants.DATABASE_SCHEMA]
     port = os.environ.get(constants.DATABASE_PORT, "3306")
     db_url = f"mysql+pymysql://{user}:{passwd}@{host}:{port}/{database}?charset=utf8mb4"
     connect_args = {}
@@ -65,7 +65,7 @@ def get_session(echo=False, schema=None):
     global GLOBAL_ENGINE, GLOBAL_SCHEMA
     if schema != GLOBAL_SCHEMA or not GLOBAL_ENGINE:
         GLOBAL_ENGINE = get_engine(echo=echo, schema=schema)
-        GLOBAL_SCHEMA = schema or os.environ[constants.ADMIN_DATABASE_SCHEMA]
+        GLOBAL_SCHEMA = schema or os.environ[constants.DATABASE_SCHEMA]
         _LOG.info("Created new SQLAlchemy engine for schema=%s", GLOBAL_SCHEMA)
     return sessionmaker()(bind=GLOBAL_ENGINE)
 
@@ -79,7 +79,9 @@ def close_session(session):
 
 
 def paxminer_schema_name() -> str:
-    return os.environ.get(constants.PAXMINER_SCHEMA, "paxminer")
+    from utilities.database.data import database_schema
+
+    return database_schema()
 
 
 T = TypeVar("T")

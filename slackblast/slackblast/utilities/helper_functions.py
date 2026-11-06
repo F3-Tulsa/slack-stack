@@ -11,16 +11,15 @@ from slack_bolt.oauth.oauth_flow import OAuthFlow
 from slack_bolt.oauth.oauth_settings import OAuthSettings
 from slack_sdk.oauth import OAuthStateUtils
 from slack_sdk.oauth.installation_store.sqlalchemy import SQLAlchemyInstallationStore
-from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from slack_sdk.web import WebClient
 from sqlalchemy import text
 
 from utilities import constants
 from utilities.constants import LOCAL_DEVELOPMENT
 from utilities.database import DbManager, get_engine, paxminer_schema_name
-from utilities.database.orm import Attendance, Backblast, PaxminerAO, PaxminerRegion, PaxminerUser, Region
+from utilities.database.orm import Attendance, Backblast, PaxminerAO, PaxminerUser, Region
 from utilities.db_oauth_stores import FixedSQLAlchemyOAuthStateStore
-from utilities.field_encryption import decrypt_field, encrypt_field
+from utilities.field_encryption import encrypt_field
 from utilities.slack import actions
 
 _LOG = logging.getLogger(__name__)
@@ -274,9 +273,8 @@ def safe_get(data, *keys):
 
 
 def get_channel_name(id, logger, client, region_record: Region = None):
-    ao_record = None
-    if region_record.paxminer_schema:
-        ao_record = DbManager.get_record(PaxminerAO, id, region_record.paxminer_schema)
+    del region_record
+    ao_record = DbManager.get_record(PaxminerAO, id, paxminer_schema_name())
 
     if not ao_record:
         try:
@@ -332,21 +330,10 @@ def get_channel_id(name, logger, client):
 
 
 def resolve_paxminer_log_channel(region_record, logger, client):
-    """Prefer PaxminerRegion.log_channel; fall back to looking up #paxminer_logs by name."""
-    schema = getattr(region_record, "paxminer_schema", None)
-    if schema:
-        try:
-            rows = DbManager.find_records(
-                PaxminerRegion,
-                [PaxminerRegion.schema_name == schema],
-                schema=paxminer_schema_name(),
-            )
-            if rows:
-                stored = (getattr(rows[0], "log_channel", None) or "").strip()
-                if stored:
-                    return stored
-        except Exception:
-            logger.debug("PaxminerRegion log_channel lookup failed", exc_info=True)
+    """Prefer region_config.log_channel; fall back to looking up #paxminer_logs by name."""
+    stored = (getattr(region_record, "log_channel", None) or "").strip()
+    if stored:
+        return stored
     return get_channel_id("paxminer_logs", logger, client)
 
 
@@ -577,97 +564,50 @@ def check_for_duplicate(
     og_ts: str = None,
 ) -> bool:
     """Check if there is already a backblast for this AO and Q on this date"""
-    logger.debug(f"Checking for duplicate backblast for {q} at {ao} on {date}")
-    if region_record.paxminer_schema:
-        # App/bot users (e.g. DRQ - Downrange Q) are shared placeholder identities.
-        # Multiple valid backblasts can exist for the same app user, AO, and date,
-        # so skip the duplicate check for them.
-        q_user_records = DbManager.find_records(
-            cls=PaxminerUser,
-            filters=[PaxminerUser.user_id == q],
-            schema=region_record.paxminer_schema,
-        )
-        if q_user_records and q_user_records[0].app:
-            logger.debug(f"Q user {q} is an app/bot user, skipping duplicate check")
-            return False
+    logger.debug(
+        "Checking for duplicate backblast for %s at %s on %s schema=%s",
+        q,
+        ao,
+        date,
+        paxminer_schema_name(),
+    )
+    del region_record
+    # App/bot users (e.g. DRQ - Downrange Q) are shared placeholder identities.
+    # Multiple valid backblasts can exist for the same app user, AO, and date,
+    # so skip the duplicate check for them.
+    q_user_records = DbManager.find_records(
+        cls=PaxminerUser,
+        filters=[PaxminerUser.user_id == q],
+        schema=paxminer_schema_name(),
+    )
+    if q_user_records and q_user_records[0].app:
+        logger.debug(f"Q user {q} is an app/bot user, skipping duplicate check")
+        return False
 
-        backblast_dups = DbManager.find_records(
-            cls=Backblast,
-            filters=[Backblast.q_user_id == q, Backblast.ao_id == ao, Backblast.bd_date == date],
-            schema=region_record.paxminer_schema,
-        )
-        attendance_dups = DbManager.find_records(
-            cls=Attendance,
-            filters=[Attendance.q_user_id == q, Attendance.ao_id == ao, Attendance.date == date],
-            schema=region_record.paxminer_schema,
-        )
-        logger.debug(f"Backblast dups: {backblast_dups}")
-        logger.debug(f"og_ts: {og_ts}")
-        has_dups = len(backblast_dups) > 0 or len(attendance_dups) > 0
-        # If the matching backblast record is the one being edited (og_ts matches),
-        # it is not a true duplicate. When only attendance dups exist (no backblast
-        # record), we cannot match og_ts and always treat it as a new duplicate.
-        is_same_backblast = len(backblast_dups) > 0 and og_ts == backblast_dups[0].timestamp
-        is_duplicate = has_dups and not is_same_backblast
-    else:
-        is_duplicate = False
-
-    return is_duplicate
+    backblast_dups = DbManager.find_records(
+        cls=Backblast,
+        filters=[Backblast.q_user_id == q, Backblast.ao_id == ao, Backblast.bd_date == date],
+        schema=paxminer_schema_name(),
+    )
+    attendance_dups = DbManager.find_records(
+        cls=Attendance,
+        filters=[Attendance.q_user_id == q, Attendance.ao_id == ao, Attendance.date == date],
+        schema=paxminer_schema_name(),
+    )
+    logger.debug(f"Backblast dups: {backblast_dups}")
+    logger.debug(f"og_ts: {og_ts}")
+    has_dups = len(backblast_dups) > 0 or len(attendance_dups) > 0
+    # If the matching backblast record is the one being edited (og_ts matches),
+    # it is not a true duplicate. When only attendance dups exist (no backblast
+    # record), we cannot match og_ts and always treat it as a new duplicate.
+    is_same_backblast = len(backblast_dups) > 0 and og_ts == backblast_dups[0].timestamp
+    return has_dups and not is_same_backblast
 
 
 def get_paxminer_schema(team_id: str, logger) -> str:
-    """Resolve paxminer schema for a Slack team by querying the paxminer registry."""
-
-    slack_response = None
-    paxminer_region_records = DbManager.find_records(
-        PaxminerRegion, filters=[True], schema=paxminer_schema_name()
-    )
-
-    for region in paxminer_region_records:
-        tok = region.slack_token
-        if not tok:
-            continue
-        slack_client = WebClient(decrypt_field(tok))
-        slack_client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=5))
-
-        ao_index = 0
-        try:
-            ao_records: List[PaxminerAO] = DbManager.find_records(
-                PaxminerAO, filters=[True], schema=region.schema_name
-            )
-            ao_records = [ao for ao in ao_records if ao.channel_id is not None]
-
-            keep_trying = True
-            while keep_trying and ao_index < len(ao_records):
-                try:
-                    slack_response = slack_client.conversations_info(channel=ao_records[ao_index].channel_id)
-                    keep_trying = False
-                except Exception as conv_exc:
-                    logger.debug(
-                        "conversations_info failed for schema=%s ao_index=%s channel_id=%s: %s",
-                        getattr(region, "schema_name", None),
-                        ao_index,
-                        ao_records[ao_index].channel_id,
-                        conv_exc,
-                        exc_info=True,
-                    )
-                    ao_index += 1
-
-        except Exception as exc:
-            logger.info(
-                "get_paxminer_schema: no AOs or query failed for region schema=%s: %s",
-                getattr(region, "schema_name", None),
-                exc,
-            )
-            continue
-
-        pm_team_id = safe_get(slack_response, "channel", "shared_team_ids", 0)
-        if team_id == pm_team_id:
-            logger.debug(f"PAXMiner schema for {team_id} is {region.schema_name}")
-            return region.schema_name
-
-    logger.debug(f"No PAXMiner schema found for {team_id}")
-    return None
+    """The one regional schema. Deploy sets it; this does not look one up."""
+    del team_id, logger
+    return paxminer_schema_name()
 
 
 def replace_slack_user_ids(text: str, client, logger, region_record: Region = None) -> str:
@@ -679,9 +619,7 @@ def replace_slack_user_ids(text: str, client, logger, region_record: Region = No
     Returns:
         str: text with slack ids replaced
     """
-    user_records = None
-    if region_record.paxminer_schema:
-        user_records = DbManager.find_records(PaxminerUser, filters=[True], schema=region_record.paxminer_schema)
+    user_records = DbManager.find_records(PaxminerUser, filters=[True], schema=paxminer_schema_name())
 
     slack_user_ids = re.findall(r"<@([A-Z0-9]+)>", text or "")
     slack_user_names = get_user_names(slack_user_ids, logger, client, return_urls=False, user_records=user_records)
@@ -717,13 +655,18 @@ def get_region_record(team_id: str, body, context, client, logger) -> Region:
                 exc_info=True,
             )
             team_name = team_domain
-        paxminer_schema = get_paxminer_schema(team_id, logger)
+        region_name = (os.environ.get("F3_REGION_NAME") or "").strip()
+        if not region_name:
+            raise RuntimeError("F3_REGION_NAME is required to create a region_config row")
         region_record: Region = DbManager.create_record(
             Region(
+                region=region_name,
+                schema_name=paxminer_schema_name(),
                 team_id=team_id,
                 bot_token=encrypt_field(context["bot_token"]),
                 workspace_name=team_name,
-                paxminer_schema=paxminer_schema,
+                slack_token="",
+                timezone=os.environ.get("TIMEZONE") or "America/Chicago",
                 email_enabled=0,
                 email_option_show=0,
                 editing_locked=0,
@@ -848,13 +791,10 @@ def replace_user_channel_ids(
         str: text with slack ids replaced
     """
     try:
-        user_records = None
-        channel_records = None
         USER_PATTERN = r"<@([A-Z0-9]+)>"
         CHANNEL_PATTERN = r"<#([A-Z0-9]+)(?:\|[A-Za-z\d]+)?>"
-        if region_record.paxminer_schema:
-            user_records = DbManager.find_records(PaxminerUser, filters=[True], schema=region_record.paxminer_schema)
-            channel_records = DbManager.find_records(PaxminerAO, filters=[True], schema=region_record.paxminer_schema)
+        user_records = DbManager.find_records(PaxminerUser, filters=[True], schema=paxminer_schema_name())
+        channel_records = DbManager.find_records(PaxminerAO, filters=[True], schema=paxminer_schema_name())
         updated_text = text.replace("{}", "")
 
         slack_user_ids = re.findall(USER_PATTERN, updated_text or "")

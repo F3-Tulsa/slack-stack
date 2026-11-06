@@ -2,6 +2,7 @@ import json
 import os
 import sys
 from datetime import date
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 # Match Lambda layout (CodeUri = slackblast/slackblast): imports are utilities.* not slackblast.utilities.*
@@ -195,6 +196,7 @@ def test_get_region_record_queries_by_team_id_on_cache_miss(mock_db, _enc, _pm):
     assert helper_functions.REGION_RECORDS[team_id] is row
 
 
+@patch.dict(os.environ, {"F3_REGION_NAME": "f3ttown", "DATABASE_SCHEMA": "f3ttown_test"})
 @patch("utilities.helper_functions.get_paxminer_schema", return_value="f3devregion")
 @patch("utilities.helper_functions.encrypt_field", side_effect=lambda x: f"enc:{x}")
 @patch("utilities.helper_functions.DbManager")
@@ -218,6 +220,9 @@ def test_get_region_record_creates_row_when_missing(mock_db, _enc, _pm):
     )
     assert out is created
     mock_db.create_record.assert_called_once()
+    created_row = mock_db.create_record.call_args[0][0]
+    assert created_row.region == "f3ttown"
+    assert created_row.schema_name == "f3ttown_test"
     assert helper_functions.REGION_RECORDS[team_id] is created
 
 
@@ -690,11 +695,12 @@ def test_check_for_duplicate_no_index_error_when_only_attendance_dup_exists(mock
     assert result is True
 
 
+@patch.dict(os.environ, {"DATABASE_SCHEMA": "f3ttown_test"})
 @patch("utilities.helper_functions.DbManager")
-def test_check_for_duplicate_returns_false_when_no_schema(mock_db):
-    """Without a paxminer schema, duplicates cannot be checked and False is returned."""
+def test_check_for_duplicate_queries_the_region_schema(mock_db):
+    """Duplicate checks use DATABASE_SCHEMA, not a second schema on the region row."""
+    mock_db.find_records.return_value = []
     region = MagicMock(spec=Region)
-    region.paxminer_schema = None
     logger = MagicMock()
 
     result = check_for_duplicate(
@@ -706,7 +712,8 @@ def test_check_for_duplicate_returns_false_when_no_schema(mock_db):
     )
 
     assert result is False
-    mock_db.find_records.assert_not_called()
+    assert mock_db.find_records.called
+    assert mock_db.find_records.call_args.kwargs["schema"] == "f3ttown_test"
 
 
 @patch("utilities.helper_functions.DbManager")
@@ -733,20 +740,17 @@ def test_check_for_duplicate_returns_false_when_no_dups(mock_db):
 
 
 def test_resolve_paxminer_log_channel_prefers_stored_id():
-    region = MagicMock(paxminer_schema="f3test")
-    stored = MagicMock(log_channel="CLOG99")
-    with patch("utilities.helper_functions.DbManager.find_records", return_value=[stored]):
-        with patch("utilities.helper_functions.get_channel_id") as by_name:
-            got = helper_functions.resolve_paxminer_log_channel(region, MagicMock(), MagicMock())
+    region = SimpleNamespace(log_channel="CLOG99")
+    with patch("utilities.helper_functions.get_channel_id") as by_name:
+        got = helper_functions.resolve_paxminer_log_channel(region, MagicMock(), MagicMock())
     assert got == "CLOG99"
     by_name.assert_not_called()
 
 
 def test_resolve_paxminer_log_channel_falls_back_to_name():
-    region = MagicMock(paxminer_schema="f3test")
-    with patch("utilities.helper_functions.DbManager.find_records", return_value=[]):
-        with patch("utilities.helper_functions.get_channel_id", return_value="CNAME") as by_name:
-            got = helper_functions.resolve_paxminer_log_channel(region, MagicMock(), MagicMock())
+    region = SimpleNamespace(log_channel="")
+    with patch("utilities.helper_functions.get_channel_id", return_value="CNAME") as by_name:
+        got = helper_functions.resolve_paxminer_log_channel(region, MagicMock(), MagicMock())
     assert got == "CNAME"
     by_name.assert_called_once()
 
