@@ -18,10 +18,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 MIGRATION_FILE = re.compile(r"^(\d{4})_([a-z0-9_]+)\.sql$")
-SCHEMA_NAME = re.compile(r"^[a-z0-9]+_(test|rehearsal|prod)$")
-REGION_PREFIX = re.compile(r"^[a-z0-9]+$")
-
-REFUSED_PREFIXES = ("f3scissortail_", "weaselbot_")
+REGION_NAME = re.compile(r"^[a-z0-9]+$")
+STAGES = ("test", "rehearsal", "prod")
+APP_REGION_NAMES = frozenset({"paxminer", "slackblast", "qsignups", "weaselbot"})
+PREFIXES = ("DATABASE", "TARGET")
 
 
 @dataclass(frozen=True)
@@ -37,22 +37,73 @@ class MigrationError(RuntimeError):
     """A file, a recorded checksum, or a statement failed."""
 
 
-def guard_schema(schema: str, *, allow_prod: bool) -> None:
-    """Refuse names this branch must not migrate."""
-    if not SCHEMA_NAME.fullmatch(schema):
-        raise MigrationError(
-            f"schema {schema!r} must look like <region>_<test|rehearsal|prod> "
-            "with a lowercase region name"
+def derived_schema(region: str, stage: str) -> str:
+    """Schema name is ``${F3_REGION_NAME}_<stage>``. App names are not regions."""
+    if stage not in STAGES:
+        raise MigrationError(f"stage {stage!r} must be one of {', '.join(STAGES)}")
+    if not REGION_NAME.fullmatch(region or ""):
+        raise MigrationError(f"F3_REGION_NAME {region!r} must match ^[a-z0-9]+$")
+    if region in APP_REGION_NAMES:
+        raise MigrationError(f"F3_REGION_NAME {region!r} is an app schema, not a region")
+    return f"{region}_{stage}"
+
+
+def stage_from_filename(path: Path) -> str:
+    for stage in STAGES:
+        if path.name.endswith(f".{stage}"):
+            return stage
+    raise MigrationError(f"cannot read a stage from env file name {path.name}")
+
+
+def parse_env_file(path: Path) -> dict[str, str]:
+    """Read one env file. Missing file is an error. Keys are not borrowed later."""
+    if not path.is_file():
+        raise MigrationError(f"missing env file {path}")
+    from dotenv import dotenv_values
+
+    raw = dotenv_values(path)
+    return {key: value for key, value in raw.items() if key and value is not None}
+
+
+def connection_settings(env: dict[str, str], prefix: str) -> dict:
+    """Every field comes from one prefix. The other prefix is never consulted."""
+    if prefix not in PREFIXES:
+        raise MigrationError(f"prefix {prefix!r} must be DATABASE or TARGET")
+    host = env.get(f"{prefix}_HOST")
+    user = env.get(f"{prefix}_USER")
+    password = env.get(f"{prefix}_PASSWORD")
+    missing = [
+        name
+        for name, value in (
+            (f"{prefix}_HOST", host),
+            (f"{prefix}_USER", user),
+            (f"{prefix}_PASSWORD", password),
         )
-    region = schema.rsplit("_", 1)[0]
-    if not REGION_PREFIX.fullmatch(region):
-        raise MigrationError(f"region {region!r} must match ^[a-z0-9]+$")
-    if schema.startswith(REFUSED_PREFIXES):
-        raise MigrationError(f"schema {schema!r} is outside this consolidation")
-    if schema.endswith("_prod") and not allow_prod:
-        raise MigrationError(
-            f"refusing {schema!r}: pass --allow-prod to migrate a prod schema"
-        )
+        if not value
+    ]
+    if missing:
+        raise MigrationError(f"missing {', '.join(missing)}")
+    port = int(env.get(f"{prefix}_PORT") or "4000")
+    tls_raw = env.get(f"{prefix}_TLS_ENABLED", "true")
+    tls = str(tls_raw).lower() in ("1", "true", "yes")
+    return {"host": host, "port": port, "user": user, "password": password, "tls": tls}
+
+
+def resolve_target(
+    env: dict[str, str],
+    *,
+    prefix: str,
+    stage: str,
+    allow_prod: bool,
+    schema: str | None,
+) -> tuple[str, dict]:
+    """Derive the schema and connection settings. Does not connect."""
+    if stage == "prod" and not allow_prod:
+        raise MigrationError(f"refusing stage {stage!r}: pass --allow-prod")
+    derived = derived_schema(env.get("F3_REGION_NAME", ""), stage)
+    if schema is not None and schema != derived:
+        raise MigrationError(f"--schema {schema!r} does not match derived schema {derived!r}")
+    return derived, connection_settings(env, prefix)
 
 
 def discover(directory: Path) -> list[Migration]:
@@ -288,34 +339,54 @@ def apply_pending(cursor, migrations: list[Migration], *, to: int | None = None)
     return done
 
 
-def connect_from_env():
-    """Connect with DATABASE_* or, failing that, the migration TARGET_* vars."""
+def connect(settings: dict):
     import pymysql
 
-    host = os.environ.get("DATABASE_HOST") or os.environ.get("TARGET_HOST")
-    user = os.environ.get("DATABASE_USER") or os.environ.get("TARGET_USER")
-    password = os.environ.get("DATABASE_PASSWORD") or os.environ.get("TARGET_PASSWORD")
-    if not host or not user or password is None:
-        raise MigrationError("DATABASE_HOST, DATABASE_USER, and DATABASE_PASSWORD are required")
-    port = int(os.environ.get("DATABASE_PORT") or os.environ.get("TARGET_PORT") or "4000")
-    tls_raw = os.environ.get("DATABASE_TLS_ENABLED", os.environ.get("TARGET_TLS_ENABLED", "true"))
-    tls = tls_raw.lower() in ("1", "true", "yes")
     return pymysql.connect(
-        host=host,
-        port=port,
-        user=user,
-        password=password,
+        host=settings["host"],
+        port=settings["port"],
+        user=settings["user"],
+        password=settings["password"],
         charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor,
-        ssl={"ssl": {}} if tls else None,
+        ssl={"ssl": {}} if settings["tls"] else None,
         autocommit=True,
     )
 
 
-def run(schema: str, directory: Path, *, to: int | None, allow_prod: bool) -> list[int]:
-    guard_schema(schema, allow_prod=allow_prod)
+def load_invocation(args) -> tuple[str, dict]:
+    """Resolve schema and connection settings before opening a connection."""
+    if args.from_environment and args.env_file:
+        raise MigrationError("pass --env-file or --from-environment, not both")
+    if args.from_environment:
+        stage = args.stage
+        if not stage:
+            raise MigrationError("--from-environment requires --stage")
+        if os.environ.get("STAGE") != stage:
+            raise MigrationError(f"STAGE {os.environ.get('STAGE')!r} must equal --stage {stage!r}")
+        env = {key: value for key, value in os.environ.items()}
+        prefix = "DATABASE"
+    else:
+        if not args.env_file:
+            raise MigrationError("pass --env-file or --from-environment")
+        path = Path(args.env_file)
+        stage = stage_from_filename(path)
+        if args.stage and args.stage != stage:
+            raise MigrationError(f"--stage {args.stage!r} does not match {path.name}")
+        env = parse_env_file(path)
+        prefix = args.prefix
+    return resolve_target(
+        env,
+        prefix=prefix,
+        stage=stage,
+        allow_prod=args.allow_prod,
+        schema=args.schema,
+    )
+
+
+def run(directory: Path, schema: str, settings: dict, *, to: int | None) -> list[int]:
     migrations = discover(directory)
-    conn = connect_from_env()
+    conn = connect(settings)
     try:
         with conn.cursor() as cursor:
             cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{schema}`")
@@ -328,7 +399,23 @@ def run(schema: str, directory: Path, *, to: int | None, allow_prod: bool) -> li
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Apply pending numbered SQL files")
-    parser.add_argument("--schema", required=True, help="Target schema, e.g. f3ttown_test")
+    parser.add_argument("--env-file", type=Path, help="Env file whose name ends in .<stage>")
+    parser.add_argument(
+        "--prefix",
+        choices=PREFIXES,
+        default="DATABASE",
+        help="Which variables to read from --env-file. Never mixed.",
+    )
+    parser.add_argument(
+        "--from-environment",
+        action="store_true",
+        help="Read DATABASE_* and STAGE from the process environment (CI)",
+    )
+    parser.add_argument("--stage", help="Required with --from-environment. Must equal STAGE.")
+    parser.add_argument(
+        "--schema",
+        help="Optional assertion. Must equal ${F3_REGION_NAME}_<stage>.",
+    )
     parser.add_argument(
         "--migrations",
         type=Path,
@@ -338,11 +425,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--allow-prod",
         action="store_true",
-        help="Required when --schema ends in _prod",
+        help="Required when the stage is prod",
     )
     args = parser.parse_args(argv)
     try:
-        applied = run(args.schema, args.migrations, to=args.to, allow_prod=args.allow_prod)
+        schema, settings = load_invocation(args)
+        applied = run(args.migrations, schema, settings, to=args.to)
     except MigrationError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

@@ -14,8 +14,10 @@ from migrate import (  # noqa: E402
     Migration,
     MigrationError,
     apply_pending,
+    connection_settings,
+    derived_schema,
     discover,
-    guard_schema,
+    load_invocation,
     split_sql,
 )
 
@@ -49,18 +51,86 @@ def _migration(tmp_path: Path, version: int, slug: str, sql: str) -> None:
     (tmp_path / f"{version:04d}_{slug}.sql").write_text(sql, encoding="utf-8")
 
 
-def test_guard_allows_test_and_refuses_prod_and_scissortail():
-    guard_schema("f3ttown_test", allow_prod=False)
-    guard_schema("f3ttown_rehearsal", allow_prod=False)
+def _args(**kwargs):
+    defaults = {
+        "env_file": None,
+        "prefix": "DATABASE",
+        "from_environment": False,
+        "stage": None,
+        "schema": None,
+        "allow_prod": False,
+        "migrations": Path("db/migrations"),
+        "to": None,
+    }
+    defaults.update(kwargs)
+    return type("Args", (), defaults)()
+
+
+def _deploy_file(path: Path, stage: str, **extra: str) -> Path:
+    body = {
+        "F3_REGION_NAME": "f3ttown",
+        "DATABASE_HOST": "from-file.example",
+        "DATABASE_PORT": "4000",
+        "DATABASE_USER": "user",
+        "DATABASE_PASSWORD": "secret",
+        "DATABASE_TLS_ENABLED": "true",
+    }
+    body.update(extra)
+    path.write_text("".join(f"{key}={value}\n" for key, value in body.items()), encoding="utf-8")
+    return path
+
+
+def test_region_name_rules():
+    assert derived_schema("f3ttown", "test") == "f3ttown_test"
+    with pytest.raises(MigrationError, match="F3_REGION_NAME"):
+        derived_schema("lake_wylie", "test")
+    with pytest.raises(MigrationError, match="F3_REGION_NAME"):
+        derived_schema("F3Town", "test")
+    with pytest.raises(MigrationError, match="app schema"):
+        derived_schema("paxminer", "test")
+    with pytest.raises(MigrationError, match="F3_REGION_NAME"):
+        derived_schema("", "test")
+
+
+def test_prod_file_refuses_before_connect(tmp_path, monkeypatch):
+    env_file = _deploy_file(tmp_path / ".env.deploy.prod", "prod")
+    calls = []
+    monkeypatch.setattr("migrate.connect", lambda settings: calls.append(settings))
     with pytest.raises(MigrationError, match="allow-prod"):
-        guard_schema("f3ttown_prod", allow_prod=False)
-    guard_schema("f3ttown_prod", allow_prod=True)
-    with pytest.raises(MigrationError, match="outside"):
-        guard_schema("f3scissortail_test", allow_prod=False)
-    with pytest.raises(MigrationError, match="outside"):
-        guard_schema("weaselbot_test", allow_prod=False)
-    with pytest.raises(MigrationError, match="must look like"):
-        guard_schema("F3Town_test", allow_prod=False)
+        load_invocation(_args(env_file=env_file))
+    assert calls == []
+
+
+def test_env_file_overrides_exported_host(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATABASE_HOST", "from-env.example")
+    env_file = _deploy_file(tmp_path / ".env.deploy.test", "test")
+    schema, settings = load_invocation(_args(env_file=env_file))
+    assert schema == "f3ttown_test"
+    assert settings["host"] == "from-file.example"
+
+
+def test_missing_env_file_does_not_use_the_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATABASE_HOST", "from-env.example")
+    monkeypatch.setenv("DATABASE_USER", "user")
+    monkeypatch.setenv("DATABASE_PASSWORD", "secret")
+    with pytest.raises(MigrationError, match="missing env file"):
+        load_invocation(_args(env_file=tmp_path / ".env.deploy.test"))
+
+
+def test_connection_fields_are_not_borrowed_across_prefixes():
+    env = {"DATABASE_HOST": "db.example", "TARGET_PASSWORD": "secret"}
+    with pytest.raises(MigrationError, match="DATABASE_USER"):
+        connection_settings(env, "DATABASE")
+
+
+def test_from_environment_stage_must_match(monkeypatch):
+    monkeypatch.setenv("STAGE", "prod")
+    monkeypatch.setenv("F3_REGION_NAME", "f3ttown")
+    monkeypatch.setenv("DATABASE_HOST", "db.example")
+    monkeypatch.setenv("DATABASE_USER", "user")
+    monkeypatch.setenv("DATABASE_PASSWORD", "secret")
+    with pytest.raises(MigrationError, match="STAGE"):
+        load_invocation(_args(from_environment=True, stage="test"))
 
 
 def test_discover_rejects_gaps_duplicates_and_bad_names(tmp_path: Path):
