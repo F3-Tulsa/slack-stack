@@ -1,5 +1,4 @@
 # Legacy: excluded paths when PAXminer used zip CodeUri. Docker image uses PAXminer/Dockerfile COPY list instead.
-backblast_scraping/
 tests/
 __pycache__/
 *.pyc
@@ -11,9 +10,6 @@ LICENSE
 manifest.json
 requirements.txt
 template.yaml
-
-Join_Channels_and_Create_Directories.py
-DelimFileWriter.py
 
 config/
 
