@@ -259,15 +259,3 @@ def run_pax_charter(
         "window_start": start.isoformat(),
         "window_end": end.isoformat(),
     }
-
-
-if __name__ == "__main__":
-    from paxminer_db import connect_from_credentials_ini
-
-    db = sys.argv[1]
-    key = sys.argv[2]
-    mydb = connect_from_credentials_ini(db)
-    try:
-        run_pax_charter(mydb, key, db, plot_dir="../plots", log_to_file=True)
-    finally:
-        mydb.close()
