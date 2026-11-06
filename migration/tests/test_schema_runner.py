@@ -131,6 +131,33 @@ def test_missing_env_file_does_not_use_the_environment(tmp_path, monkeypatch):
         load_invocation(_args(env_file=tmp_path / ".env.deploy.test"))
 
 
+def test_port_and_tls_values_are_checked():
+    env = {
+        "DATABASE_HOST": "db.example",
+        "DATABASE_USER": "user",
+        "DATABASE_PASSWORD": "secret",
+        "DATABASE_PORT": "40o0",
+    }
+    with pytest.raises(MigrationError, match="DATABASE_PORT"):
+        connection_settings(env, "DATABASE")
+    env["DATABASE_PORT"] = "4000"
+    env["DATABASE_TLS_ENABLED"] = "ture"
+    with pytest.raises(MigrationError, match="DATABASE_TLS_ENABLED"):
+        connection_settings(env, "DATABASE")
+    env["DATABASE_TLS_ENABLED"] = "false"
+    assert connection_settings(env, "DATABASE")["tls"] is False
+    del env["DATABASE_TLS_ENABLED"]
+    assert connection_settings(env, "DATABASE")["tls"] is True
+
+
+def test_missing_pymysql_does_not_hide_a_config_error(tmp_path, monkeypatch, capsys):
+    monkeypatch.setitem(sys.modules, "pymysql", None)
+    code = main(["--env-file", str(tmp_path / ".env.deploy.test")])
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "missing env file" in captured.err
+
+
 def test_connection_fields_are_not_borrowed_across_prefixes():
     env = {"DATABASE_HOST": "db.example", "TARGET_PASSWORD": "secret"}
     with pytest.raises(MigrationError, match="DATABASE_USER"):

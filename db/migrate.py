@@ -100,10 +100,22 @@ def connection_settings(env: dict[str, str], prefix: str) -> dict:
     ]
     if missing:
         raise MigrationError(f"missing {', '.join(missing)}")
-    port = int(env.get(f"{prefix}_PORT") or "4000")
-    tls_raw = env.get(f"{prefix}_TLS_ENABLED", "true")
-    tls = str(tls_raw).lower() in ("1", "true", "yes")
-    return {"host": host, "port": port, "user": user, "password": password, "tls": tls}
+    port_key = f"{prefix}_PORT"
+    port_raw = env.get(port_key) or "4000"
+    if not str(port_raw).isdigit():
+        raise MigrationError(f"{port_key} must be a number")
+    tls_key = f"{prefix}_TLS_ENABLED"
+    if tls_key in env and str(env[tls_key]).strip() != "":
+        tls_raw = str(env[tls_key]).strip().lower()
+        if tls_raw in ("1", "true", "yes", "on"):
+            tls = True
+        elif tls_raw in ("0", "false", "no", "off"):
+            tls = False
+        else:
+            raise MigrationError(f"{tls_key} must be true or false")
+    else:
+        tls = True
+    return {"host": host, "port": int(port_raw), "user": user, "password": password, "tls": tls}
 
 
 def resolve_target(
@@ -658,10 +670,15 @@ def main(argv: list[str] | None = None) -> int:
             print(verb + " " + ", ".join(f"{n:04d}" for n in marked))
             return 0
         result = run(args.migrations, schema, settings, to=args.to, check=args.check)
+    except MigrationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     except Exception as exc:
-        import pymysql
-
-        if not isinstance(exc, (MigrationError, pymysql.err.MySQLError)):
+        try:
+            import pymysql
+        except ModuleNotFoundError:
+            raise exc
+        if not isinstance(exc, pymysql.err.MySQLError):
             raise
         print(f"error: {exc}", file=sys.stderr)
         return 1
