@@ -381,7 +381,6 @@ Create environments **`test`** and **`prod`** in your repo settings (or run `./d
 | `DATABASE_TLS_ENABLED` | `true` | Passed to all four stacks as `DatabaseTlsEnabled`; use `false` if your DB has no TLS |
 | `F3_REGION_NAME` | `f3ttown` | Workflow sets `DATABASE_SCHEMA` to `${F3_REGION_NAME}_${STAGE}` for all three apps |
 | `IMAGE_S3_BUCKET` | `slack-stack-images-prod` | Globally unique |
-| `F3_REGION_NAME` | `f3ttown` | Region key in `paxminer.regions`; regional schema `{F3_REGION_NAME}_${STAGE}` |
 | `F3_REGION_SLACK_TEAM_ID` | `T01234567` | Slack workspace Team ID |
 | `PM_SLACK_APP_ID` | `A01234567` | PAXMiner Slack App ID for the **PAXMiner Settings** deep-link on `/config-slackblast` (public; use a variable, not a secret). Empty keeps the `/config-paxminer` hint. |
 | `SB_SLACK_CLIENT_ID` | `10773766677089.xxx` | Slack OAuth Client ID for slackblast (public app id; use a variable, not a secret) |

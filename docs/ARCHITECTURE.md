@@ -40,8 +40,8 @@ flowchart LR
     BD[beatdowns]
     ATT[bd_attendance]
   end
-  PM -->|regions.schema_name| regional
-  SB -->|regions.paxminer_schema + achievements webhook URL| PM
+  PM -->|region_config.schema_name| regional
+  SB -->|region_config + achievements webhook URL| PM
   SB -->|Slack config| regional
   QS -->|aos and beatdowns in DATABASE_SCHEMA| AOS
   QS -->|schedule data| QSMASTER[qsignups_master weekly aos regions]
@@ -80,7 +80,7 @@ Resolved in code via [`qsignups/qsignups/permissions.py`](../qsignups/qsignups/p
 | Q | Refresh only | No | No | No | No | Yes |
 | USER | Refresh only | No | No | No | No | Own slot only |
 
-If **`DATABASE_SCHEMA`** is unset, AOQ and **Q** cannot be detected; behavior falls back to **ADMIN vs USER** (Slack role only) for calendar access.
+**`DATABASE_SCHEMA`** is required. QSignups cannot connect without it.
 
 ## Cross-links
 
