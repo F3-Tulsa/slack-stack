@@ -40,9 +40,8 @@ Parameters:
     Default: "123"
     NoEcho: true
   DatabaseSchema:
-    Description: RDS Database Schema
+    Description: Region schema, ${F3_REGION_NAME}_${Stage}
     Type: String
-    Default: "slackblast"
   DatabasePort:
     Description: MySQL / TiDB port (3306 MySQL, 4000 TiDB)
     Type: String
@@ -54,10 +53,6 @@ Parameters:
     AllowedValues:
       - "true"
       - "false"
-  PaxminerSchema:
-    Description: PAXminer registry database (schema) name
-    Type: String
-    Default: "paxminer"
   PmAchievementsUrl:
     Description: PAXMiner achievements Function URL for post-backblast webhook (optional)
     Type: String
@@ -202,8 +197,7 @@ Resources:
           DATABASE_TLS_ENABLED: !Ref DatabaseTlsEnabled
           ADMIN_DATABASE_USER: !Ref DatabaseUser
           ADMIN_DATABASE_PASSWORD: !Ref DatabasePassword
-          ADMIN_DATABASE_SCHEMA: !Ref DatabaseSchema
-          PAXMINER_SCHEMA: !Ref PaxminerSchema
+          DATABASE_SCHEMA: !Ref DatabaseSchema
           PM_ACHIEVEMENTS_URL: !Ref PmAchievementsUrl
           PM_ACHIEVEMENTS_WEBHOOK_SECRET: !Ref PmAchievementsWebhookSecret
           PM_SLACK_APP_ID: !Ref PmSlackAppId

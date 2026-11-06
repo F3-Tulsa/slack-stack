@@ -250,7 +250,7 @@ jobs:
               DatabasePassword=${{ secrets.DATABASE_PASSWORD }} \
               DatabaseTlsEnabled=${{ vars.DATABASE_TLS_ENABLED }} \
               DbEncryptionKey=${{ secrets.DB_ENCRYPTION_KEY }} \
-              PaxminerSchema=${{ vars.PAXMINER_SCHEMA }}_${{ vars.STAGE }} \
+              DatabaseSchema=${{ vars.F3_REGION_NAME }}_${{ vars.STAGE }} \
               Stage=${{ vars.STAGE }} \
               F3RegionName=${{ vars.F3_REGION_NAME }} \
               PmSlackToken=${{ secrets.PM_SLACK_TOKEN }} \
@@ -297,8 +297,7 @@ jobs:
             "DatabaseUser=${{ secrets.DATABASE_USER }}"
             "DatabasePassword=${{ secrets.DATABASE_PASSWORD }}"
             "DatabaseTlsEnabled=${{ vars.DATABASE_TLS_ENABLED }}"
-            "DatabaseSchema=${{ vars.SLACKBLAST_SCHEMA }}_${{ vars.STAGE }}"
-            "PaxminerSchema=${{ vars.PAXMINER_SCHEMA }}_${{ vars.STAGE }}"
+            "DatabaseSchema=${{ vars.F3_REGION_NAME }}_${{ vars.STAGE }}"
             "PmAchievementsUrl=${ACH_URL}"
             "PmAchievementsWebhookSecret=${{ secrets.PM_ACHIEVEMENTS_WEBHOOK_SECRET }}"
             "PmSlackAppId=${{ vars.PM_SLACK_APP_ID }}"
@@ -358,8 +357,7 @@ jobs:
             "DatabaseUser=${{ secrets.DATABASE_USER }}"
             "DatabasePassword=${{ secrets.DATABASE_PASSWORD }}"
             "DatabaseTlsEnabled=${{ vars.DATABASE_TLS_ENABLED }}"
-            "DatabaseSchema=${{ vars.QSIGNUPS_SCHEMA }}_${{ vars.STAGE }}"
-            "PmRegionalSchema=${{ vars.PM_REGIONAL_SCHEMA }}"
+            "DatabaseSchema=${{ vars.F3_REGION_NAME }}_${{ vars.STAGE }}"
             "SlackToken=${{ secrets.QS_SLACK_TOKEN }}"
             "SlackSigningSecret=${{ secrets.QS_SLACK_SIGNING_SECRET }}"
             "SlackClientSecret=${{ secrets.QS_SLACK_CLIENT_SECRET }}"
