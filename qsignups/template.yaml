@@ -41,7 +41,7 @@ Parameters:
     Default: "123"
     NoEcho: true
   DatabaseSchema:
-    Description: Region schema, ${F3_REGION_NAME}_${Stage}
+    Description: Region schema. Deploy sets this to the region name plus the stage.
     Type: String
   DatabasePort:
     Description: MySQL / TiDB port (3306 MySQL, 4000 TiDB)

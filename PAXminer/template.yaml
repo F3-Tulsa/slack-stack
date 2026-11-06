@@ -26,7 +26,7 @@ Parameters:
       - "false"
   DatabaseSchema:
     Type: String
-    Description: Region schema, ${F3_REGION_NAME}_${Stage}
+    Description: Region schema. Deploy sets this to the region name plus the stage.
   DatabaseFullRun:
     Type: String
     Default: "false"
