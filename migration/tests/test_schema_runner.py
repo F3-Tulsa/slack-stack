@@ -89,6 +89,33 @@ def test_split_sql_ignores_semicolons_inside_strings_and_comments():
     assert split_sql(text) == ["SELECT 'a;b'", 'SELECT "c;d"']
 
 
+def test_split_sql_keeps_executable_comments_and_quotes():
+    tidb = (
+        "CREATE TABLE t (id INT, PRIMARY KEY (id) "
+        "/*T![clustered_index] NONCLUSTERED */);"
+    )
+    assert split_sql(tidb) == [
+        "CREATE TABLE t (id INT, PRIMARY KEY (id) /*T![clustered_index] NONCLUSTERED */)"
+    ]
+    assert split_sql("/*!40101 SET NAMES utf8mb4 */;") == ["/*!40101 SET NAMES utf8mb4 */"]
+    assert split_sql("SELECT 5--3;") == ["SELECT 5--3"]
+    assert split_sql(r"SELECT 'it\'s; ok';") == [r"SELECT 'it\'s; ok'"]
+    assert split_sql("SELECT 'it''s; ok';") == ["SELECT 'it''s; ok'"]
+    assert split_sql("SELECT `a;b`;") == ["SELECT `a;b`"]
+    hashed = split_sql("SELECT 1 # c;\n;")
+    assert hashed == ["SELECT 1 # c;\n"]
+
+
+def test_split_sql_skips_plain_comments_and_rejects_delimiter():
+    assert split_sql("SELECT 1;\n-- only\n;\nSELECT 2;") == ["SELECT 1", "SELECT 2"]
+    assert split_sql("SELECT 1; -- note") == ["SELECT 1"]
+    body = "CREATE TABLE t (id INT /*!50100 PARTITION BY HASH(id) */);"
+    assert split_sql(body) == ["CREATE TABLE t (id INT /*!50100 PARTITION BY HASH(id) */)"]
+    assert split_sql("\ufeffSELECT 1;\r\nSELECT 2;") == ["SELECT 1", "SELECT 2"]
+    with pytest.raises(MigrationError, match="DELIMITER"):
+        split_sql("DELIMITER $$\nSELECT 1;\n")
+
+
 def test_apply_records_only_after_success_and_stops_at_to():
     first = Migration(1, "alpha", Path("0001_alpha.sql"), "abc", "SELECT 1; SELECT 2;")
     second = Migration(2, "beta", Path("0002_beta.sql"), "def", "SELECT 3;")

@@ -87,36 +87,136 @@ def discover(directory: Path) -> list[Migration]:
     return [found[n] for n in versions]
 
 
+def normalize_sql(text: str) -> str:
+    """Drop a leading BOM and turn CRLF into LF. Hashing uses the same text."""
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _is_executable_comment(text: str) -> bool:
+    return text.startswith("/*!") or text.startswith("/*+") or text.startswith("/*T!")
+
+
+def _trim_leading(statement: str) -> str:
+    """Drop leading whitespace and plain comments. Keep executable comments."""
+    s = statement
+    while s:
+        stripped = s.lstrip(" \t\n")
+        if not stripped:
+            return ""
+        if stripped.startswith("--") and (len(stripped) == 2 or stripped[2] in " \t\n"):
+            newline = stripped.find("\n")
+            s = "" if newline < 0 else stripped[newline + 1 :]
+            continue
+        if stripped.startswith("#"):
+            newline = stripped.find("\n")
+            s = "" if newline < 0 else stripped[newline + 1 :]
+            continue
+        if stripped.startswith("/*") and not _is_executable_comment(stripped):
+            end = stripped.find("*/")
+            if end < 0:
+                return ""
+            s = stripped[end + 2 :]
+            continue
+        return stripped
+    return ""
+
+
 def split_sql(text: str) -> list[str]:
-    """Split a script on semicolons that are not inside quotes or comments."""
+    """Split on semicolons that end statements. Comments stay in the text.
+
+    Assumes the default sql_mode, so backslash escapes quotes. A line that
+    starts with DELIMITER is rejected: migration files have no stored programs.
+    """
+    text = normalize_sql(text)
     statements: list[str] = []
     buf: list[str] = []
     i = 0
+    length = len(text)
     in_single = False
     in_double = False
-    while i < len(text):
+    in_tick = False
+    in_block = False
+    in_line = False
+
+    def at_line_start() -> bool:
+        return i == 0 or text[i - 1] == "\n"
+
+    while i < length:
         ch = text[i]
-        nxt = text[i + 1] if i + 1 < len(text) else ""
-        if not in_single and not in_double and ch == "/" and nxt == "*":
-            end = text.find("*/", i + 2)
-            i = len(text) if end < 0 else end + 2
+        if in_line:
+            buf.append(ch)
+            if ch == "\n":
+                in_line = False
+            i += 1
             continue
-        if not in_single and not in_double and ch == "-" and nxt == "-":
-            end = text.find("\n", i)
-            i = len(text) if end < 0 else end + 1
+        if in_block:
+            buf.append(ch)
+            if ch == "*" and i + 1 < length and text[i + 1] == "/":
+                buf.append("/")
+                i += 2
+                in_block = False
+                continue
+            i += 1
             continue
-        if ch == "'" and not in_double:
-            in_single = not in_single
+        if in_single or in_double or in_tick:
+            buf.append(ch)
+            if ch == "\\" and (in_single or in_double) and i + 1 < length:
+                buf.append(text[i + 1])
+                i += 2
+                continue
+            quote = "'" if in_single else ('"' if in_double else "`")
+            if ch == quote:
+                if i + 1 < length and text[i + 1] == quote:
+                    buf.append(quote)
+                    i += 2
+                    continue
+                in_single = in_double = in_tick = False
+            i += 1
+            continue
+        if at_line_start():
+            j = i
+            while j < length and text[j] in " \t":
+                j += 1
+            if text.startswith("DELIMITER", j) and (
+                j + 9 == length or text[j + 9] in " \t\n"
+            ):
+                raise MigrationError("DELIMITER is not allowed in migration files")
+        if ch == "-" and i + 1 < length and text[i + 1] == "-":
+            after = text[i + 2] if i + 2 < length else ""
+            if after in ("", " ", "\t", "\n"):
+                in_line = True
+                buf.append("--")
+                i += 2
+                continue
+        if ch == "#":
+            in_line = True
             buf.append(ch)
             i += 1
             continue
-        if ch == '"' and not in_single:
-            in_double = not in_double
+        if ch == "/" and i + 1 < length and text[i + 1] == "*":
+            in_block = True
+            buf.append("/*")
+            i += 2
+            continue
+        if ch == "'":
+            in_single = True
             buf.append(ch)
             i += 1
             continue
-        if ch == ";" and not in_single and not in_double:
-            statement = "".join(buf).strip()
+        if ch == '"':
+            in_double = True
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == "`":
+            in_tick = True
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == ";":
+            statement = _trim_leading("".join(buf))
             if statement:
                 statements.append(statement)
             buf = []
@@ -124,7 +224,7 @@ def split_sql(text: str) -> list[str]:
             continue
         buf.append(ch)
         i += 1
-    tail = "".join(buf).strip()
+    tail = _trim_leading("".join(buf))
     if tail:
         statements.append(tail)
     return statements
