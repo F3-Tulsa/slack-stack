@@ -8,6 +8,6 @@
 
 `--mark-applied N` records files `0001` through `N` without executing them, after checking that each `CREATE TABLE` and `CREATE VIEW` names a table that already exists. It prints the plan unless `--yes` is passed. It refuses when `schema_migrations` already has a row.
 
-SQL files are split on semicolons. The splitter assumes the default `sql_mode`, so backslash escapes quotes. It keeps `/*! */`, `/*T! */`, and `/*+ */` comments, because MySQL and TiDB execute those. A line that starts with `DELIMITER` is rejected. Checksums use LF and ignore a leading BOM.
+SQL files are split on semicolons. The splitter assumes the default `sql_mode`, so backslash escapes quotes. It keeps `/*! */`, `/*T! */`, and `/*+ */` comments, because MySQL and TiDB execute those. A line that starts with `DELIMITER`, in any case, is rejected. A column that is literally named delimiter at the start of a line has to be backticked. Checksums use LF and ignore a leading BOM.
 
 The directory is empty on purpose. `0001_baseline.sql` comes from a rehearsed consolidated schema. Nothing in `deploy.sh` or `deploy.yml` calls the runner.

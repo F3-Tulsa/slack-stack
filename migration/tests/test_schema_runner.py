@@ -199,6 +199,16 @@ def test_mark_applied_missing_schema_is_a_runner_error(tmp_path, monkeypatch, ca
     assert captured.err.startswith("error:")
 
 
+def test_from_environment_refuses_a_target_prefix(monkeypatch):
+    monkeypatch.setenv("STAGE", "test")
+    monkeypatch.setenv("F3_REGION_NAME", "f3ttown")
+    monkeypatch.setenv("DATABASE_HOST", "db.example")
+    monkeypatch.setenv("DATABASE_USER", "user")
+    monkeypatch.setenv("DATABASE_PASSWORD", "secret")
+    with pytest.raises(MigrationError, match="DATABASE_"):
+        load_invocation(_args(from_environment=True, stage="test", prefix="TARGET"))
+
+
 def test_from_environment_stage_must_match(monkeypatch):
     monkeypatch.setenv("STAGE", "prod")
     monkeypatch.setenv("F3_REGION_NAME", "f3ttown")
@@ -281,6 +291,10 @@ def test_split_sql_skips_plain_comments_and_rejects_delimiter():
     assert split_sql("\ufeffSELECT 1;\r\nSELECT 2;") == ["SELECT 1", "SELECT 2"]
     with pytest.raises(MigrationError, match="DELIMITER"):
         split_sql("DELIMITER $$\nSELECT 1;\n")
+    with pytest.raises(MigrationError, match="DELIMITER"):
+        split_sql("delimiter $$\nSELECT 1;\n")
+    with pytest.raises(MigrationError, match="DELIMITER"):
+        split_sql("Delimiter //\nSELECT 1;\n")
 
 
 def test_split_sql_refuses_unclosed_comment_string_and_identifier():
@@ -309,7 +323,6 @@ def test_apply_records_only_after_success_and_stops_at_to():
 
 
 def test_apply_refuses_a_changed_checksum_and_skips_the_insert_on_failure():
-    Migration(1, "alpha", Path("0001_alpha.sql"), "abc", "SELECT 1;")
     cursor = FakeCursor([{"version": 1, "checksum": "abc"}])
     changed = Migration(1, "alpha", Path("0001_alpha.sql"), "zzz", "SELECT 9;")
     with pytest.raises(MigrationError, match="checksum"):

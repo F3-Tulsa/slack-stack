@@ -249,7 +249,8 @@ def split_sql(text: str) -> list[str]:
             j = i
             while j < length and text[j] in " \t":
                 j += 1
-            if text.startswith("DELIMITER", j) and (
+            word = text[j : j + 9]
+            if word.lower() == "delimiter" and (
                 j + 9 == length or text[j + 9] in " \t\n"
             ):
                 raise MigrationError("DELIMITER is not allowed in migration files")
@@ -423,6 +424,8 @@ def load_invocation(args) -> tuple[str, dict]:
     if args.from_environment and args.env_file:
         raise MigrationError("pass --env-file or --from-environment, not both")
     if args.from_environment:
+        if args.prefix != "DATABASE":
+            raise MigrationError("--from-environment reads DATABASE_* only")
         stage = args.stage
         if not stage:
             raise MigrationError("--from-environment requires --stage")
