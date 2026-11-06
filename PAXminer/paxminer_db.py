@@ -1,36 +1,14 @@
-"""Shared MySQL connection helpers for PAXminer scripts (credentials.ini + optional env overrides)."""
+"""Shared MySQL connection helpers for PAXminer (Lambda / TiDB-style env vars)."""
 from __future__ import annotations
 
-import configparser
 import logging
 import os
 import ssl
-from pathlib import Path
 from typing import Any
 
 import pymysql
 
-_ROOT = Path(__file__).resolve().parent
 LOG = logging.getLogger(__name__)
-
-
-def credentials_path(relative: str = "config/credentials.ini") -> Path:
-    return _ROOT / relative
-
-
-def load_aws_section(ini_path: Path | None = None) -> dict:
-    path = ini_path or credentials_path()
-    cfg = configparser.ConfigParser()
-    cfg.read(path)
-    sec = cfg["aws"]
-    return {
-        "host": sec["host"],
-        "port": int(sec.get("port", "3306")),
-        "user": sec["user"],
-        "password": sec["password"],
-        "paxminer_schema": sec.get("paxminer_schema", "paxminer").strip() or "paxminer",
-        "tls": sec.get("tls", "false").strip().lower() in ("1", "true", "yes", "on"),
-    }
 
 
 def connect_mysql(
@@ -54,23 +32,6 @@ def connect_mysql(
     if tls:
         kw["ssl"] = ssl.create_default_context()
     return pymysql.connect(**kw)
-
-
-def connect_from_credentials_ini(database: str, ini_path: Path | None = None):
-    """Connect using [aws] from credentials.ini; database is the schema name to USE."""
-    aws = load_aws_section(ini_path)
-    return connect_mysql(
-        host=aws["host"],
-        port=aws["port"],
-        user=aws["user"],
-        password=aws["password"],
-        database=database,
-        tls=aws["tls"],
-    )
-
-
-def paxminer_schema_from_ini(ini_path: Path | None = None) -> str:
-    return load_aws_section(ini_path)["paxminer_schema"]
 
 
 def _env_bool(name: str, default: bool = False) -> bool:

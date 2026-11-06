@@ -269,17 +269,3 @@ def run_ao_leaderboard(
         "window_start": start.isoformat(),
         "window_end": end.isoformat(),
     }
-
-
-if __name__ == "__main__":
-    from paxminer_db import connect_from_credentials_ini
-
-    db = sys.argv[1]
-    key = sys.argv[2]
-    region = sys.argv[3]
-    firstf = sys.argv[4]
-    mydb = connect_from_credentials_ini(db)
-    try:
-        run_ao_leaderboard(mydb, key, db, region, firstf, plot_dir="../plots")
-    finally:
-        mydb.close()
