@@ -333,7 +333,7 @@ def run_almost_there_for_region(
 def run_leaderboard(conn, pm_schema: str, *, dry_run: bool = False) -> list[dict]:
     results = []
     with conn.cursor() as cur:
-        cur.execute(f"SELECT * FROM `{pm_schema}`.`regions` WHERE active=1")
+        cur.execute(f"SELECT * FROM `{pm_schema}`.`region_config` WHERE active=1")
         regions = cur.fetchall()
     for row in regions:
         try:

@@ -75,6 +75,7 @@ from config_paxminer import (
     _load_achievements,
 )
 from paxminer_db import connect_from_env, paxminer_schema_from_env
+from region_data import database_schema
 from schedule_schema import (
     count_customized_builtins,
     count_schedules_for_definition,
@@ -197,11 +198,7 @@ def register_schedule_listeners(app) -> None:
         selected_id=None,
     ):
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             meta = _parse_metadata((body.get("view") or {}).get("private_metadata"))
             with conn.cursor() as cur:
@@ -229,11 +226,7 @@ def register_schedule_listeners(app) -> None:
             except (TypeError, ValueError):
                 page = 0
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 ensure_report_enabled_column(cur, pm)
@@ -256,11 +249,7 @@ def register_schedule_listeners(app) -> None:
         if not region or not regional_schema:
             return
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 schedules = load_schedules(cur, pm, regional_schema)
@@ -284,11 +273,7 @@ def register_schedule_listeners(app) -> None:
         if not region or not regional_schema:
             return
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 ensure_report_enabled_column(cur, pm)
@@ -321,11 +306,7 @@ def register_schedule_listeners(app) -> None:
         team_id, regional_schema, region = _ctx(body)
         if not region or not regional_schema:
             return
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 from achievements.range import ensure_achievement_range_columns
@@ -347,11 +328,7 @@ def register_schedule_listeners(app) -> None:
         if not region or not regional_schema:
             return
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 defs = load_definitions(cur, pm, regional_schema)
@@ -379,11 +356,7 @@ def register_schedule_listeners(app) -> None:
             )
             return
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 sched = load_schedule(cur, pm, sid)
@@ -428,11 +401,7 @@ def register_schedule_listeners(app) -> None:
             draft = dict(draft)
             draft["destination_channels"] = channels[:40]
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 defs = load_definitions(cur, pm, regional_schema)
@@ -470,11 +439,7 @@ def register_schedule_listeners(app) -> None:
             )
             return
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 cur.execute(f"DELETE FROM `{pm}`.`region_schedules` WHERE id=%s", (sid,))
@@ -497,11 +462,7 @@ def register_schedule_listeners(app) -> None:
             )
             return
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 cur.execute(
@@ -521,11 +482,7 @@ def register_schedule_listeners(app) -> None:
             return
         team_id, regional_schema, region = _ctx(body)
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 n = delete_all_schedules(cur, pm, regional_schema)
@@ -550,11 +507,7 @@ def register_schedule_listeners(app) -> None:
             return
         team_id, regional_schema, region = _ctx(body)
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 customized = count_customized_builtins(cur, pm, regional_schema)
@@ -647,11 +600,7 @@ def register_schedule_listeners(app) -> None:
         values = parse_schedule_form(body)
         pm = paxminer_schema_from_env()
         try:
-            conn = connect_from_env(
-                os.environ.get("PAXMINER_REGISTRY_DATABASE")
-                or os.environ.get("PAXMINER_SCHEMA")
-                or "paxminer"
-            )
+            conn = connect_from_env(database_schema())
         except Exception as exc:
             logger.exception("schedule edit connect failed")
             ack(
@@ -781,11 +730,7 @@ def register_schedule_listeners(app) -> None:
             )
             return
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 row = load_definition(cur, pm, rid)
@@ -813,11 +758,7 @@ def register_schedule_listeners(app) -> None:
             )
             return
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 row = load_definition(cur, pm, rid)
@@ -851,11 +792,7 @@ def register_schedule_listeners(app) -> None:
             )
             return
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 sched = load_schedule(cur, pm, sid)
@@ -889,11 +826,7 @@ def register_schedule_listeners(app) -> None:
             return
         team_id, regional_schema, region = _ctx(body)
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 counts = delete_all_definitions_and_schedules(cur, pm, regional_schema)
@@ -914,11 +847,7 @@ def register_schedule_listeners(app) -> None:
         if not region or not regional_schema:
             return
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 customized = count_customized_builtins(cur, pm, regional_schema)
@@ -962,11 +891,7 @@ def register_schedule_listeners(app) -> None:
             )
             return
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 row = load_definition(cur, pm, rid)
@@ -991,11 +916,7 @@ def register_schedule_listeners(app) -> None:
     def _push_schedule_delete_confirm(body, client, logger, schedule_id: int) -> None:
         team_id, regional_schema, region = _ctx(body)
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 row = load_schedule(cur, pm, schedule_id)
@@ -1040,11 +961,7 @@ def register_schedule_listeners(app) -> None:
     def _toggle_report_enabled(body, client, logger, definition_id: int) -> None:
         team_id, regional_schema, region = _ctx(body)
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 ensure_report_enabled_column(cur, pm)
@@ -1074,11 +991,7 @@ def register_schedule_listeners(app) -> None:
     def _push_report_delete_confirm(body, client, logger, definition_id: int) -> None:
         team_id, regional_schema, region = _ctx(body)
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 row = load_definition(cur, pm, definition_id)
@@ -1177,11 +1090,7 @@ def register_schedule_listeners(app) -> None:
         state = body.get("view", {}).get("state", {}).get("values", {})
         draft = draft_from_report_state(state, meta.get("draft"))
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             row = None
             if meta.get("definition_id"):
@@ -1236,11 +1145,7 @@ def register_schedule_listeners(app) -> None:
             ack(response_action="errors", errors=errors)
             return
         pm = paxminer_schema_from_env()
-        conn = connect_from_env(
-            os.environ.get("PAXMINER_REGISTRY_DATABASE")
-            or os.environ.get("PAXMINER_SCHEMA")
-            or "paxminer"
-        )
+        conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
                 fields_json = json.dumps(values.get("fields") or [])
@@ -1368,11 +1273,7 @@ def register_schedule_listeners(app) -> None:
             return
         pm = paxminer_schema_from_env()
         try:
-            conn = connect_from_env(
-                os.environ.get("PAXMINER_REGISTRY_DATABASE")
-                or os.environ.get("PAXMINER_SCHEMA")
-                or "paxminer"
-            )
+            conn = connect_from_env(database_schema())
         except Exception as exc:
             logger.exception("kotter config connect failed")
             ack(
@@ -1384,7 +1285,7 @@ def register_schedule_listeners(app) -> None:
             with conn.cursor() as cur:
                 sets = ", ".join(f"`{k}`=%s" for k in values)
                 cur.execute(
-                    f"UPDATE `{pm}`.`regions` SET {sets} WHERE region=%s",
+                    f"UPDATE `{pm}`.`region_config` SET {sets} WHERE region=%s",
                     (*values.values(), region_key),
                 )
                 conn.commit()

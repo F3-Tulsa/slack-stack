@@ -72,7 +72,10 @@ def connect_from_env(database: str):
 
 
 def paxminer_schema_from_env() -> str:
-    return os.environ.get("PAXMINER_SCHEMA", "paxminer").strip() or "paxminer"
+    """Qualifier for SQL. It is DATABASE_SCHEMA, the same database as the connection."""
+    from region_data import database_schema
+
+    return database_schema()
 
 
 def read_sql_df(conn, sql: str, params: Any = None):

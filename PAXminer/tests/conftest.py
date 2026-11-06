@@ -12,6 +12,9 @@ import sys
 import threading
 import time
 
+# Listeners open DATABASE_SCHEMA. Unit tests mock the connection.
+os.environ.setdefault("DATABASE_SCHEMA", "f3ttown_test")
+
 # 2 GiB. On Linux ru_maxrss is KiB; on macOS (Darwin) it is bytes.
 _RSS_CAP_BYTES = 2 * 1024 * 1024 * 1024
 _POLL_SECONDS = 2.0
