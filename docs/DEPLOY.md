@@ -30,16 +30,12 @@ All deploy configuration is driven by environment variables. Copy [`.env.deploy.
 | `DATABASE_PASSWORD` | Database password |
 | `DATABASE_TLS_ENABLED` | `true` for TiDB Cloud and other TLS-required hosts; `false` for local MySQL or RDS without TLS |
 | `DB_ENCRYPTION_KEY` | **Required.** Any random string (min **16** characters) used as a passphrase for DB field encryption (see **Database encryption**). Must be the **same value** in `.env.deploy.*` and `migration/.env.migration.*` for a given stage. |
-| `PAXMINER_SCHEMA` | **Bare** base name for PAXminer (e.g. `paxminer`). Deploy appends `_${STAGE}` → `paxminer_test` / `paxminer_prod` |
-| `SLACKBLAST_SCHEMA` | **Bare** base name for slackblast (e.g. `slackblast`). Same auto-suffix |
-| `QSIGNUPS_SCHEMA` | **Bare** base name for qsignups (e.g. `qsignups`). Same auto-suffix |
 | `IMAGE_S3_BUCKET` | Globally unique S3 bucket name for slackblast backblast images and **qsignups weinke** calendar PNGs under `weinkes/` (the slackblast stack creates this bucket) |
-| `F3_REGION_NAME` | F3 region key stored in `paxminer_<stage>.regions.region` (e.g. `f3ttown`); regional DB schema is `{F3_REGION_NAME}_{STAGE}` |
-| `PM_SLACK_TOKEN` | PAXMiner Slack **bot** token; SAM passes to Lambdas, which **encrypt** and **upsert** into `paxminer_<stage>.regions.slack_token` on cold start |
+| `F3_REGION_NAME` | Region key, lowercase letters and digits only (e.g. `f3ttown`). Every app uses one schema, `{F3_REGION_NAME}_{STAGE}` (`f3ttown_test` / `f3ttown_prod`), passed as `DATABASE_SCHEMA` |
+| `PM_SLACK_TOKEN` | PAXMiner Slack **bot** token; SAM passes to Lambdas, which **encrypt** and **upsert** into `{F3_REGION_NAME}_{STAGE}.region_config.slack_token` on cold start |
 | `PM_SLACK_SIGNING_SECRET` | PAXMiner Slack **signing secret** for the lightweight **SlackFunction** Bolt front door (`/config-paxminer` and interactivity) |
 | `PM_SLACK_APP_ID` | PAXMiner Slack **App ID** (`A…`, public). Slackblast uses it for the **PAXMiner Settings** deep-link on `/config-slackblast`. GitHub Actions: environment **variable**, not a secret. Leave empty to keep the `/config-paxminer` hint instead of the button. |
 | `PM_ACHIEVEMENTS_WEBHOOK_SECRET` | Shared secret for Slackblast → PAXMiner achievements Function URL (`X-Paxminer-Achievements-Webhook-Secret` header). Same rules as **`DB_ENCRYPTION_KEY`**: any random string, **min 16 characters** (see **Database encryption** for generate commands). |
-| `PM_REGIONAL_SCHEMA` | Optional; QSignups Site Q sync (first schema if comma-separated, e.g. `f3ttown_test`) |
 | `F3_REGION_SLACK_TEAM_ID` | Slack workspace Team ID (e.g. `T01234567`) |
 
 ### Bootstrap (optional; for `--bootstrap`)
@@ -383,10 +379,7 @@ Create environments **`test`** and **`prod`** in your repo settings (or run `./d
 | `STAGE` | `test` or `prod` | Must match SAM `StagesMap` keys |
 | `AWS_REGION` | `us-east-1` | |
 | `DATABASE_TLS_ENABLED` | `true` | Passed to all four stacks as `DatabaseTlsEnabled`; use `false` if your DB has no TLS |
-| `PAXMINER_SCHEMA` | `paxminer` | Bare name; workflow appends `_${STAGE}` to match migrated DB |
-| `SLACKBLAST_SCHEMA` | `slackblast` | Same |
-| `QSIGNUPS_SCHEMA` | `qsignups` | Same |
-| `PM_REGIONAL_SCHEMA` | `f3ttown_prod` | Optional; QSignups Site Q sync (first schema if comma-separated) |
+| `F3_REGION_NAME` | `f3ttown` | Workflow sets `DATABASE_SCHEMA` to `${F3_REGION_NAME}_${STAGE}` for all three apps |
 | `IMAGE_S3_BUCKET` | `slack-stack-images-prod` | Globally unique |
 | `F3_REGION_NAME` | `f3ttown` | Region key in `paxminer.regions`; regional schema `{F3_REGION_NAME}_${STAGE}` |
 | `F3_REGION_SLACK_TEAM_ID` | `T01234567` | Slack workspace Team ID |
