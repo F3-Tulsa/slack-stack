@@ -9,12 +9,13 @@ from logging import Logger
 
 import requests
 
+from utilities.database.data import database_schema
+
 LOG = logging.getLogger(__name__)
 
 
 def achievements_coupling_configured(region_record) -> bool:
-    if not getattr(region_record, "paxminer_schema", None):
-        return False
+    del region_record
     url = (os.environ.get("PM_ACHIEVEMENTS_URL") or "").strip()
     secret = (os.environ.get("PM_ACHIEVEMENTS_WEBHOOK_SECRET") or "").strip()
     return bool(url and secret)
@@ -36,7 +37,7 @@ def trigger_achievement_webhook(
     url = os.environ["PM_ACHIEVEMENTS_URL"].strip()
     secret = os.environ["PM_ACHIEVEMENTS_WEBHOOK_SECRET"].strip()
     payload = {
-        "schema": region_record.paxminer_schema,
+        "schema": database_schema(),
         "pax_user_ids": sorted(pax_user_ids),
         "bd_date": bd_date,
         "ao_channel_id": ao_channel_id,
@@ -54,7 +55,7 @@ def trigger_achievement_webhook(
         )
         log.info(
             "Achievement webhook invoked schema=%s pax_count=%s",
-            region_record.paxminer_schema,
+            database_schema(),
             len(pax_user_ids),
         )
     except Exception as e:

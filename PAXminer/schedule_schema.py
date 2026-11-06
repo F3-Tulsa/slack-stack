@@ -78,7 +78,7 @@ def ensure_timezone_column(cur, pm_schema: str) -> bool:
     cur.execute(
         """
         SELECT COUNT(*) AS c FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA=%s AND TABLE_NAME='regions' AND COLUMN_NAME='timezone'
+        WHERE TABLE_SCHEMA=%s AND TABLE_NAME='region_config' AND COLUMN_NAME='timezone'
         """,
         (pm_schema,),
     )
@@ -86,7 +86,7 @@ def ensure_timezone_column(cur, pm_schema: str) -> bool:
         return False
     cur.execute(
         f"""
-        ALTER TABLE `{pm_schema}`.`regions`
+        ALTER TABLE `{pm_schema}`.`region_config`
         ADD COLUMN `timezone` varchar(45) NOT NULL DEFAULT %s
         """,
         (DEFAULT_TIMEZONE,),
@@ -100,7 +100,7 @@ def ensure_log_channel_column(cur, pm_schema: str) -> bool:
     cur.execute(
         """
         SELECT COUNT(*) AS c FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA=%s AND TABLE_NAME='regions' AND COLUMN_NAME='log_channel'
+        WHERE TABLE_SCHEMA=%s AND TABLE_NAME='region_config' AND COLUMN_NAME='log_channel'
         """,
         (pm_schema,),
     )
@@ -108,7 +108,7 @@ def ensure_log_channel_column(cur, pm_schema: str) -> bool:
         return False
     cur.execute(
         f"""
-        ALTER TABLE `{pm_schema}`.`regions`
+        ALTER TABLE `{pm_schema}`.`region_config`
         ADD COLUMN `log_channel` varchar(100) NULL
         """
     )
@@ -449,12 +449,12 @@ def backfill_award_achievements_schedules(cur, pm_schema: str) -> dict[str, int]
 
     cur.execute(
         f"""
-        SELECT schema_name, achievement_channel, send_achievements
-        FROM `{pm_schema}`.`regions`
+        SELECT schema_name, region_achievements_channel, send_achievements
+        FROM `{pm_schema}`.`region_config`
         WHERE active = 1
           AND COALESCE(send_achievements, 0) = 1
-          AND achievement_channel IS NOT NULL
-          AND achievement_channel != ''
+          AND region_achievements_channel IS NOT NULL
+          AND region_achievements_channel != ''
         """
     )
     regions = list(cur.fetchall() or [])
@@ -463,7 +463,7 @@ def backfill_award_achievements_schedules(cur, pm_schema: str) -> dict[str, int]
     skipped = 0
     for region in regions:
         regional = region.get("schema_name") or ""
-        channel = (region.get("achievement_channel") or "").strip()
+        channel = (region.get("region_achievements_channel") or "").strip()
         if not regional or not channel:
             skipped += 1
             continue
@@ -521,7 +521,7 @@ def seed_all_regions(cur, pm_schema: str) -> dict[str, int]:
     ensure_scheduler_tables (the scheduler migration phase does this and reports
     the results in its receipt), so those DDL steps are not repeated here.
     """
-    cur.execute(f"SELECT * FROM `{pm_schema}`.`regions` WHERE active = 1")
+    cur.execute(f"SELECT * FROM `{pm_schema}`.`region_config` WHERE active = 1")
     regions = list(cur.fetchall() or [])
     LOG.info("Active regions in %s.regions: %s", pm_schema, len(regions))
     regions_with_schema = 0

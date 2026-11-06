@@ -43,7 +43,7 @@ def test_config_command_admin_acks_empty_and_opens_modal():
         "region": "tulsa",
         "schema_name": "f3tulsa_test",
         "send_achievements": 1,
-        "achievement_channel": "C12345678",
+        "region_achievements_channel": "C12345678",
         "timezone": "America/Chicago",
     }
     body = {"user_id": "U1", "team_id": "T1", "trigger_id": "trig"}
@@ -232,7 +232,7 @@ def test_modals_with_input_blocks_include_submit():
         "schema_name": "f3tulsa_test",
         "team_id": "T1",
         "send_achievements": 1,
-        "achievement_channel": "C12345678",
+        "region_achievements_channel": "C12345678",
         "timezone": "America/Chicago",
     }
     achievements = [
@@ -514,7 +514,7 @@ def test_achievements_list_submit_updates_to_config_modal():
         "region": "tulsa",
         "schema_name": "f3tulsa_test",
         "send_achievements": 1,
-        "achievement_channel": "C12345678",
+        "region_achievements_channel": "C12345678",
         "timezone": "America/Chicago",
     }
 

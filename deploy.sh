@@ -246,12 +246,6 @@ run_setup_github() {
 
   gh variable set STAGE --env "$STAGE" --body "$STAGE" -R "$repo"
   gh variable set AWS_REGION --env "$STAGE" --body "$AWS_REGION" -R "$repo"
-  gh variable set PAXMINER_SCHEMA --env "$STAGE" --body "$PAXMINER_SCHEMA" -R "$repo"
-  gh variable set SLACKBLAST_SCHEMA --env "$STAGE" --body "$SLACKBLAST_SCHEMA" -R "$repo"
-  gh variable set QSIGNUPS_SCHEMA --env "$STAGE" --body "$QSIGNUPS_SCHEMA" -R "$repo"
-  [[ -n "${PM_REGIONAL_SCHEMA:-}" ]] && \
-    gh variable set PM_REGIONAL_SCHEMA --env "$STAGE" \
-      --body "$PM_REGIONAL_SCHEMA" -R "$repo"
   gh variable set IMAGE_S3_BUCKET --env "$STAGE" --body "$IMAGE_S3_BUCKET" -R "$repo"
   gh variable set DATABASE_TLS_ENABLED --env "$STAGE" --body "$DATABASE_TLS_ENABLED" -R "$repo"
   gh variable set F3_REGION_NAME --env "$STAGE" --body "$F3_REGION_NAME" -R "$repo"
@@ -321,9 +315,11 @@ if [[ "${#DB_ENCRYPTION_KEY}" -lt 16 ]]; then
   echo "ERROR: DB_ENCRYPTION_KEY must be at least 16 characters (got ${#DB_ENCRYPTION_KEY})" >&2
   exit 1
 fi
-: "${PAXMINER_SCHEMA:?}"
-: "${SLACKBLAST_SCHEMA:?}"
-: "${QSIGNUPS_SCHEMA:?}"
+: "${F3_REGION_NAME:?}"
+if [[ ! "$F3_REGION_NAME" =~ ^[a-z0-9]+$ ]]; then
+  echo "ERROR: F3_REGION_NAME must match ^[a-z0-9]+$ (got ${F3_REGION_NAME})" >&2
+  exit 1
+fi
 : "${IMAGE_S3_BUCKET:?}"
 
 : "${SB_SLACK_TOKEN:?}"
@@ -518,7 +514,7 @@ deploy_paxminer() {
       "DatabasePassword=${DATABASE_PASSWORD}" \
       "DatabaseTlsEnabled=${DATABASE_TLS_ENABLED}" \
       "DbEncryptionKey=${DB_ENCRYPTION_KEY}" \
-      "PaxminerSchema=${PAXMINER_SCHEMA}_${STAGE}" \
+      "DatabaseSchema=${F3_REGION_NAME}_${STAGE}" \
       "Stage=${STAGE}" \
       "F3RegionName=${F3_REGION_NAME}" \
       "PmSlackToken=${PM_SLACK_TOKEN}" \
@@ -554,8 +550,7 @@ deploy_slackblast() {
       "DatabaseUser=${DATABASE_USER}" \
       "DatabasePassword=${DATABASE_PASSWORD}" \
       "DatabaseTlsEnabled=${DATABASE_TLS_ENABLED}" \
-      "DatabaseSchema=${SLACKBLAST_SCHEMA}_${STAGE}" \
-      "PaxminerSchema=${PAXMINER_SCHEMA}_${STAGE}" \
+      "DatabaseSchema=${F3_REGION_NAME}_${STAGE}" \
       "PmAchievementsUrl=${achievements_url}" \
       "PmAchievementsWebhookSecret=${PM_ACHIEVEMENTS_WEBHOOK_SECRET}" \
       "PmSlackAppId=${PM_SLACK_APP_ID:-}" \
@@ -597,8 +592,7 @@ deploy_qsignups() {
       "DatabaseUser=${DATABASE_USER}" \
       "DatabasePassword=${DATABASE_PASSWORD}" \
       "DatabaseTlsEnabled=${DATABASE_TLS_ENABLED}" \
-      "DatabaseSchema=${QSIGNUPS_SCHEMA}_${STAGE}" \
-      "PmRegionalSchema=${PM_REGIONAL_SCHEMA:-}" \
+      "DatabaseSchema=${F3_REGION_NAME}_${STAGE}" \
       "SlackToken=${QS_SLACK_TOKEN}" \
       "SlackSigningSecret=${QS_SLACK_SIGNING_SECRET}" \
       "SlackClientSecret=${QS_SLACK_CLIENT_SECRET}" \

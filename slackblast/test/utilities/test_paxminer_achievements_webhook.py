@@ -13,7 +13,7 @@ def _region(paxminer_schema=None):
     return rec
 
 
-def test_coupling_guard_requires_schema_url_and_secret():
+def test_coupling_guard_requires_url_and_secret():
     from utilities.paxminer_achievements_webhook import achievements_coupling_configured
 
     with patch.dict(
@@ -24,8 +24,9 @@ def test_coupling_guard_requires_schema_url_and_secret():
         },
         clear=False,
     ):
-        assert achievements_coupling_configured(_region("f3test")) is True
-        assert achievements_coupling_configured(_region(None)) is False
+        assert achievements_coupling_configured(_region()) is True
+    with patch.dict(os.environ, {"PM_ACHIEVEMENTS_URL": "", "PM_ACHIEVEMENTS_WEBHOOK_SECRET": ""}, clear=False):
+        assert achievements_coupling_configured(_region()) is False
 
 
 def test_trigger_skipped_when_uncoupled():
@@ -65,5 +66,5 @@ def test_trigger_posts_when_coupled():
             kwargs = post.call_args.kwargs
             assert kwargs["headers"]["X-Paxminer-Achievements-Webhook-Secret"] == "secret-value"
             payload = post.call_args.kwargs["data"]
-            assert "f3test" in payload
+            assert "f3ttown_test" in payload
             assert "U1" in payload and "U2" in payload

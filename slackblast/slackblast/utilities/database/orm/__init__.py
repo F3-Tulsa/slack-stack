@@ -1,8 +1,7 @@
-import os
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table
+from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.mysql import DATE, JSON, LONGTEXT, TEXT, TINYINT
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, registry
 from typing_extensions import Annotated
@@ -63,12 +62,18 @@ class GetDBClass:
 
 
 class Region(BaseClass, GetDBClass):
-    __tablename__ = "regions"
-    id: Mapped[intpk]
-    team_id: Mapped[str100]
+    """One row in region_config. Slackblast's bot token is column sb_bot_token."""
+
+    __tablename__ = "region_config"
+    region: Mapped[str45pk]
+    schema_name: Mapped[Optional[str45]]
+    team_id: Mapped[Optional[str100]]
     workspace_name: Mapped[Optional[str100]]
-    bot_token: Mapped[Optional[str100]]
-    paxminer_schema: Mapped[Optional[str100]]
+    bot_token: Mapped[Optional[str]] = mapped_column("sb_bot_token", String(512))
+    slack_token: Mapped[str] = mapped_column(String(512), default="")
+    timezone: Mapped[str45] = mapped_column(default="America/Chicago")
+    region_achievements_channel: Mapped[Optional[str100]]
+    log_channel: Mapped[Optional[str100]]
     email_enabled: Mapped[tinyint0]
     email_server: Mapped[Optional[str100]]
     email_server_port: Mapped[Optional[int]]
@@ -223,32 +228,3 @@ class AchievementsAwarded(BaseClass, GetDBClass):
     def get_id():
         return AchievementsAwarded.id
 
-
-_PAXMINER_SCHEMA = os.environ.get("PAXMINER_SCHEMA", "paxminer")
-paxminer_region = Table(
-    "regions",
-    BaseClass.metadata,
-    Column("region", String(45), primary_key=True),
-    Column("slack_token", String(90)),
-    Column("schema_name", String(45)),
-    Column("active", TINYINT),
-    Column("contact", String(45)),
-    Column("scrape_backblasts", TINYINT),
-    Column("send_achievements", TINYINT),
-    Column("achievement_channel", String(100)),
-    Column("log_channel", String(100)),
-    Column("NO_POST_THRESHOLD", Integer),
-    Column("REMINDER_WEEKS", Integer),
-    Column("HOME_AO_CAPTURE", Integer),
-    Column("NO_Q_THRESHOLD_WEEKS", Integer),
-    Column("NO_Q_THRESHOLD_POSTS", Integer),
-    Column("comments", TEXT),
-    schema=_PAXMINER_SCHEMA,
-)
-
-
-class PaxminerRegion(BaseClass, GetDBClass):
-    __table__ = paxminer_region
-
-    def get_id():
-        return PaxminerRegion.schema_name

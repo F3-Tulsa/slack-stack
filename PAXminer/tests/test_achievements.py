@@ -289,7 +289,7 @@ def test_run_achievements_skips_duplicate_grants():
     }
     region_row = {
         "send_achievements": 1,
-        "achievement_channel": "C1",
+        "region_achievements_channel": "C1",
         "slack_token": "enc",
         "region": "test",
     }
@@ -353,7 +353,7 @@ def test_run_achievements_skips_when_no_attendance_data():
     }
     region_row = {
         "send_achievements": 1,
-        "achievement_channel": "C1",
+        "region_achievements_channel": "C1",
         "slack_token": "enc",
         "region": "test",
     }
@@ -396,7 +396,7 @@ def test_channel_override_bypasses_send_achievements_gate():
 
     region_row = {
         "send_achievements": 0,
-        "achievement_channel": None,
+        "region_achievements_channel": None,
         "slack_token": "enc",
         "region": "test",
     }
@@ -444,7 +444,7 @@ def test_run_achievements_skips_revokes_on_unscoped_run():
     }
     region_row = {
         "send_achievements": 1,
-        "achievement_channel": "C1",
+        "region_achievements_channel": "C1",
         "slack_token": "enc",
         "region": "test",
     }
@@ -514,7 +514,7 @@ def test_reconcile_holds_prior_year_award_in_later_year_window():
     }
     region_row = {
         "send_achievements": 1,
-        "achievement_channel": "C1",
+        "region_achievements_channel": "C1",
         "slack_token": "enc",
         "region": "test",
     }
@@ -608,7 +608,7 @@ def test_run_achievements_scoped_revoke_only_for_webhook_pax():
     }
     region_row = {
         "send_achievements": 1,
-        "achievement_channel": "C1",
+        "region_achievements_channel": "C1",
         "slack_token": "enc",
         "region": "test",
     }
@@ -676,7 +676,7 @@ def test_run_achievements_grants_and_posts():
     }
     region_row = {
         "send_achievements": 1,
-        "achievement_channel": "C1",
+        "region_achievements_channel": "C1",
         "slack_token": "enc",
         "region": "test",
     }
@@ -758,7 +758,7 @@ def test_run_achievements_ignored_insert_does_not_announce():
     }
     region_row = {
         "send_achievements": 1,
-        "achievement_channel": "C1",
+        "region_achievements_channel": "C1",
         "slack_token": "enc",
         "region": "test",
     }
@@ -829,7 +829,7 @@ def test_announce_false_inserts_without_slack():
     }
     region_row = {
         "send_achievements": 0,
-        "achievement_channel": None,
+        "region_achievements_channel": None,
         "slack_token": None,
         "region": "test",
     }
@@ -893,7 +893,7 @@ def test_resolve_achievement_channel_prefers_schedule():
     mock_conn.cursor.return_value.__enter__.return_value = mock_cur
     mock_conn.cursor.return_value.__exit__.return_value = False
     mock_cur.fetchone.return_value = {"destination_channels": '["C_SCHED"]'}
-    region_row = {"achievement_channel": "C_FALLBACK", "send_achievements": 1}
+    region_row = {"region_achievements_channel": "C_FALLBACK", "send_achievements": 1}
 
     assert (
         resolve_achievement_channel(mock_conn, "paxminer_test", "f3test", region_row)
@@ -1127,7 +1127,7 @@ def test_config_modal_hub_has_timezone_and_section_buttons():
     modal = _config_modal(
         {
             "send_achievements": 1,
-            "achievement_channel": "C12345678",
+            "region_achievements_channel": "C12345678",
             "timezone": "America/Chicago",
             "team_id": "T1",
             "schema_name": "f3test",
@@ -1149,7 +1149,7 @@ def test_config_modal_hub_has_timezone_and_section_buttons():
 
     # Achievements enable/channel moved to Schedule (Award Achievements).
     assert "send_achievements" not in by_id
-    assert "achievement_channel" not in by_id
+    assert "region_achievements_channel" not in by_id
     assert "kotter_channel" not in by_id
     assert "firstf_channel" not in by_id
     assert "features" not in by_id
@@ -1216,7 +1216,7 @@ def test_achievements_handler_webhook_success():
     os.environ["PM_ACHIEVEMENTS_WEBHOOK_SECRET"] = "webhook-secret-value"
     region_row = {
         "send_achievements": 1,
-        "achievement_channel": "C1",
+        "region_achievements_channel": "C1",
         "slack_token": "enc",
         "region": "test",
         "schema_name": "f3test",
@@ -1275,7 +1275,7 @@ def test_achievements_loads_only_regional_schema():
     }
     region_row = {
         "send_achievements": 1,
-        "achievement_channel": "C1",
+        "region_achievements_channel": "C1",
         "slack_token": "enc",
         "region": "Tulsa",
         "schema_name": "f3ttown_test",
@@ -1375,7 +1375,7 @@ def test_leaderboard_loads_only_regional_schema():
 
     region_row = {
         "schema_name": "f3ttown_test",
-        "achievement_channel": "C_ACH",
+        "region_achievements_channel": "C_ACH",
         "slack_token": "enc",
         "region": "Tulsa",
     }
@@ -1408,7 +1408,7 @@ def test_plain_leaderboard_skips_achievement_versions_sql():
 
     region_row = {
         "schema_name": "f3ttown_test",
-        "achievement_channel": "C_ACH",
+        "region_achievements_channel": "C_ACH",
         "slack_token": "enc",
         "region": "Tulsa",
     }
@@ -1608,7 +1608,7 @@ def test_achievements_emit_per_event_paxminer_logs():
 
     region_row = {
         "send_achievements": 1,
-        "achievement_channel": "C_ACH",
+        "region_achievements_channel": "C_ACH",
         "slack_token": "enc",
         "region": "Tulsa",
         "schema_name": "f3test",
@@ -1969,7 +1969,7 @@ def _older_version_reeval(
                             regional_schema="f3test",
                             region_row={
                                 "send_achievements": 1,
-                                "achievement_channel": "C1",
+                                "region_achievements_channel": "C1",
                                 "slack_token": "enc",
                             },
                             pax_user_ids={"U1"},
@@ -2041,7 +2041,7 @@ def test_null_version_is_grandfathered():
                             regional_schema="f3test",
                             region_row={
                                 "send_achievements": 1,
-                                "achievement_channel": "C1",
+                                "region_achievements_channel": "C1",
                                 "slack_token": "enc",
                             },
                             pax_user_ids={"U1"},
@@ -2058,7 +2058,7 @@ def test_disabled_family_is_inert():
     mock_conn.cursor.return_value.__enter__.return_value = mock_cur
     mock_conn.cursor.return_value.__exit__.return_value = False
     mock_cur.fetchall.side_effect = [[], []]
-    region_row = {"send_achievements": 1, "achievement_channel": "C1", "slack_token": "enc"}
+    region_row = {"send_achievements": 1, "region_achievements_channel": "C1", "slack_token": "enc"}
     with patch("achievements.runner.decrypt_field", return_value="x"):
         with patch("achievements.runner.slack_client"):
             result = run_achievements_for_region(
@@ -2230,7 +2230,7 @@ def _scheduled_revoke_run(**kwargs):
                                             regional_schema="f3test",
                                             region_row={
                                                 "send_achievements": 1,
-                                                "achievement_channel": "C1",
+                                                "region_achievements_channel": "C1",
                                                 "slack_token": "enc",
                                             },
                                             start=date(2026, 1, 1),
@@ -2370,7 +2370,7 @@ def _ao_grant_run(trigger_timestamp):
                                                 regional_schema="f3test",
                                                 region_row={
                                                     "send_achievements": 1,
-                                                    "achievement_channel": "C1",
+                                                    "region_achievements_channel": "C1",
                                                     "slack_token": "enc",
                                                 },
                                                 pax_user_ids={pax},
@@ -2548,7 +2548,7 @@ def test_net_neutral_move_suppresses_both_dms():
                                                 regional_schema="f3test",
                                                 region_row={
                                                     "send_achievements": 1,
-                                                    "achievement_channel": "C1",
+                                                    "region_achievements_channel": "C1",
                                                     "slack_token": "enc",
                                                 },
                                                 start=date(2026, 1, 1),
@@ -2658,7 +2658,7 @@ def test_standalone_revoke_and_grant_still_dm():
                                                 regional_schema="f3test",
                                                 region_row={
                                                     "send_achievements": 1,
-                                                    "achievement_channel": "C1",
+                                                    "region_achievements_channel": "C1",
                                                     "slack_token": "enc",
                                                 },
                                                 start=date(2026, 1, 1),
@@ -2739,7 +2739,7 @@ def test_scheduled_run_holds_iso_w01_boundary_week():
                             regional_schema="f3test",
                             region_row={
                                 "send_achievements": 1,
-                                "achievement_channel": "C1",
+                                "region_achievements_channel": "C1",
                                 "slack_token": "enc",
                             },
                             start=start,
@@ -2824,7 +2824,7 @@ def test_webhook_never_revokes():
                                             regional_schema="f3test",
                                             region_row={
                                                 "send_achievements": 1,
-                                                "achievement_channel": "C1",
+                                                "region_achievements_channel": "C1",
                                                 "slack_token": "enc",
                                             },
                                             pax_user_ids={pax},
@@ -2889,7 +2889,7 @@ def test_ytd_run_does_not_revoke_prior_year():
                             regional_schema="f3test",
                             region_row={
                                 "send_achievements": 1,
-                                "achievement_channel": "C1",
+                                "region_achievements_channel": "C1",
                                 "slack_token": "enc",
                             },
                             pax_user_ids={"U01AAAAAAA1"},
@@ -3106,7 +3106,7 @@ def test_scheduled_noop_logs_summary_webhook_silent():
     }
     region_row = {
         "send_achievements": 1,
-        "achievement_channel": "C1",
+        "region_achievements_channel": "C1",
         "slack_token": "enc",
     }
     nation = _posts("U01AAAAAAA1", ["2026-01-01"])
@@ -3198,7 +3198,7 @@ def test_dm_failure_counted_on_summary():
                                             regional_schema="f3test",
                                             region_row={
                                                 "send_achievements": 1,
-                                                "achievement_channel": "C1",
+                                                "region_achievements_channel": "C1",
                                                 "slack_token": "enc",
                                             },
                                         )

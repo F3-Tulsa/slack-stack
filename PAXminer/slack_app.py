@@ -1072,7 +1072,7 @@ def handle_config_submit(ack, body, client, logger):
         with conn.cursor() as cur:
             ensure_log_channel_column(cur, pm)
             cur.execute(
-                f"UPDATE `{pm}`.`regions` SET `timezone`=%s, `log_channel`=%s WHERE region=%s",
+                f"UPDATE `{pm}`.`region_config` SET `timezone`=%s, `log_channel`=%s WHERE region=%s",
                 (timezone, log_channel, region_key),
             )
             conn.commit()
@@ -1110,7 +1110,7 @@ def _post_achievement_admin_notice(region: dict, channel_text: str | None, log_t
         return
     try:
         client = slack_client(decrypt_field(token_enc))
-        channel = (region.get("achievement_channel") or "").strip() or None
+        channel = (region.get("region_achievements_channel") or "").strip() or None
         if channel and channel_text:
             post_message(client, channel, channel_text)
         post_log(client, log_text, region=region)

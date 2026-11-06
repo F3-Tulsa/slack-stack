@@ -101,34 +101,25 @@ def load_test_env(*, skip: bool = False) -> Path:
 
 
 def resolve_schemas(schema_arg: str | None) -> tuple[str, str]:
-    """Return (regional_schema, registry_schema) with test-only naming."""
-    regional = (
+    """Return (schema, schema). Registry and regional data share DATABASE_SCHEMA."""
+    schema = (
         (schema_arg or "").strip()
-        or (os.environ.get("PM_REGIONAL_SCHEMA") or "").strip()
+        or (os.environ.get("DATABASE_SCHEMA") or "").strip()
         or "f3ttown_test"
     )
-    # PM_REGIONAL_SCHEMA may be comma-separated; take the first.
-    regional = regional.split(",")[0].strip()
-    bare_pm = (os.environ.get("PAXMINER_SCHEMA") or "paxminer").strip()
-    # deploy.sh appends _<stage>; accept either bare or already-suffixed.
-    if bare_pm.endswith("_test"):
-        registry = bare_pm
-    elif bare_pm.endswith("_prod") or "prod" in bare_pm.lower():
-        raise SystemExit(
-            f"Refusing prod registry schema from PAXMINER_SCHEMA={bare_pm!r}"
-        )
-    else:
-        registry = f"{bare_pm}_test"
-    return regional, registry
+    schema = schema.split(",")[0].strip()
+    if schema.endswith("_prod") or "prod" in schema.lower():
+        raise SystemExit(f"Refusing prod schema from DATABASE_SCHEMA={schema!r}")
+    return schema, schema
 
 
 def resolve_qsignups_schema() -> str:
-    """QSignups schema for the test stage (holds the curated AO list)."""
-    bare = (os.environ.get("QSIGNUPS_SCHEMA") or "qsignups").strip()
+    """QSignups tables live in the same region schema."""
+    bare = (os.environ.get("DATABASE_SCHEMA") or "f3ttown_test").strip()
     if bare.endswith("_test"):
         return bare
     if "prod" in bare.lower():
-        raise SystemExit(f"Refusing prod QSignups schema QSIGNUPS_SCHEMA={bare!r}")
+        raise SystemExit(f"Refusing prod schema from DATABASE_SCHEMA={bare!r}")
     return f"{bare}_test"
 
 
@@ -1001,7 +992,7 @@ def connect(schema: str):
 def load_region_row(conn, registry_schema: str, regional_schema: str) -> dict:
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT * FROM `{registry_schema}`.`regions` WHERE schema_name=%s LIMIT 1",
+            f"SELECT * FROM `{registry_schema}`.`region_config` WHERE schema_name=%s LIMIT 1",
             (regional_schema,),
         )
         row = cur.fetchone()
@@ -2046,7 +2037,7 @@ def print_region_context(region: dict, regional_schema: str, registry_schema: st
     print(f"  registry_schema:     {registry_schema}")
     print(f"  region:              {region.get('region')}")
     print(f"  send_achievements:   {region.get('send_achievements')}")
-    print(f"  achievement_channel: {region.get('achievement_channel')}")
+    print(f"  achievement_channel: {region.get('region_achievements_channel')}")
     print(f"  kotter_channel:      {region.get('kotter_channel')}")
     for key in (
         "NO_POST_THRESHOLD",
@@ -2223,7 +2214,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--schema",
         default=None,
-        help="Regional schema (default: PM_REGIONAL_SCHEMA or f3ttown_test)",
+        help="Region schema (default: DATABASE_SCHEMA or f3ttown_test)",
     )
     parser.add_argument(
         "--skip-env-load",

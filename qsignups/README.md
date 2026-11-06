@@ -59,7 +59,7 @@ Workflow: [.github/workflows/deploy.yml](../.github/workflows/deploy.yml) (branc
     "DATABASE_TLS_ENABLED": "false",
     "ADMIN_DATABASE_USER": "local_user",
     "ADMIN_DATABASE_PASSWORD": "local_password",
-    "ADMIN_DATABASE_SCHEMA": "your_schema",
+    "DATABASE_SCHEMA": "your_schema",
     "DB_ENCRYPTION_KEY": "",
     "GOOGLE_CLIENT_ID": "",
     "GOOGLE_CLIENT_SECRET": "",

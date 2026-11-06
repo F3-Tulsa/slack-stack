@@ -39,12 +39,9 @@ require_encryption_key()
 
 
 def _registry_database() -> str:
-    return (
-        os.environ.get("PAXMINER_REGISTRY_DATABASE")
-        or os.environ.get("ADMIN_DATABASE_SCHEMA")
-        or os.environ.get("PAXMINER_SCHEMA")
-        or "paxminer"
-    ).strip()
+    from region_data import database_schema
+
+    return database_schema()
 
 
 def _pm_schema() -> str:
@@ -59,8 +56,10 @@ def _try_bootstrap_pm_slack_token() -> None:
         return
     from common.token_bootstrap import upsert_paxminer_slack_token
 
-    registry = _pm_schema()
-    regional = f"{f3}_{st}"
+    from region_data import database_schema
+
+    registry = database_schema()
+    regional = database_schema()
     upsert_paxminer_slack_token(
         registry_schema=registry,
         region_key=f3,
@@ -113,7 +112,7 @@ def achievements_handler(event, context):
         conn = connect_from_env(registry_db)
         try:
             with conn.cursor() as cur:
-                cur.execute(f"SELECT * FROM `{pm}`.`regions` WHERE schema_name=%s LIMIT 1", (schema,))
+                cur.execute(f"SELECT * FROM `{pm}`.`region_config` WHERE schema_name=%s LIMIT 1", (schema,))
                 region_row = cur.fetchone()
             if not region_row:
                 return http_response(404, {"ok": False, "error": "Region not found"})
@@ -242,7 +241,7 @@ def schedule_handler(event, context):
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"SELECT * FROM `{pm}`.`regions` WHERE schema_name=%s LIMIT 1",
+                    f"SELECT * FROM `{pm}`.`region_config` WHERE schema_name=%s LIMIT 1",
                     (schema,),
                 )
                 region_row = cur.fetchone()
