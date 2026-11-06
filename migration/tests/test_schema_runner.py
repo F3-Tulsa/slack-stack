@@ -160,6 +160,27 @@ def test_discover_rejects_gaps_duplicates_and_bad_names(tmp_path: Path):
         discover(tmp_path)
 
 
+def test_crlf_and_bom_have_the_same_checksum(tmp_path: Path):
+    (tmp_path / "0001_alpha.sql").write_bytes(b"SELECT 1;\n")
+    lf = discover(tmp_path)[0].checksum
+    (tmp_path / "0001_alpha.sql").write_bytes(b"\xef\xbb\xbfSELECT 1;\r\n")
+    assert discover(tmp_path)[0].checksum == lf
+
+
+def test_version_zero_is_rejected(tmp_path: Path):
+    (tmp_path / "0000_alpha.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    with pytest.raises(MigrationError, match="0001"):
+        discover(tmp_path)
+
+
+def test_partial_failure_names_statements_already_run():
+    failing = Migration(1, "alpha", Path("0001_alpha.sql"), "abc", "SELECT ok; SELECT FAIL;")
+    cursor = FakeCursor()
+    cursor.fail_on = "FAIL"
+    with pytest.raises(MigrationError, match="statements 1-1 of 2 already ran"):
+        apply_pending(cursor, [failing])
+
+
 def test_split_sql_ignores_semicolons_inside_strings_and_comments():
     text = """
     -- a comment with a ; semicolon

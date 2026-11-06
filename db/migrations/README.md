@@ -1,7 +1,13 @@
 # Schema migrations
 
-`python db/migrate.py --schema f3ttown_test` applies `db/migrations/NNNN_slug.sql` in order and records each file in `schema_migrations`.
+`python db/migrate.py --env-file .env.deploy.test` applies `NNNN_slug.sql` in order. The schema is `${F3_REGION_NAME}_<stage>`. The stage is the suffix of the env file name. `--prefix TARGET` reads `TARGET_*` instead of `DATABASE_*`. CI uses `--from-environment --stage <stage>`, and `STAGE` must match.
 
-The directory is empty on purpose. `0001_baseline.sql` is generated from a rehearsed consolidated schema, not from the current four-schema layout. See `db/INVENTORY.md`.
+`--allow-prod` is required when the stage is `prod`.
 
-The runner refuses a schema ending in `_prod` unless `--allow-prod` is passed, and it refuses `f3scissortail_*` and `weaselbot_*`. Nothing in `deploy.sh` or `deploy.yml` calls it, so merging this branch does not migrate prod.
+`--check` connects and reports. It exits 1 when a file is pending or a checksum changed, and it does not write.
+
+`--mark-applied N` records files `0001` through `N` without executing them, after checking that each `CREATE TABLE` and `CREATE VIEW` names a table that already exists. It prints the plan unless `--yes` is passed. It refuses when `schema_migrations` already has a row.
+
+SQL files are split on semicolons. The splitter assumes the default `sql_mode`, so backslash escapes quotes. It keeps `/*! */`, `/*T! */`, and `/*+ */` comments, because MySQL and TiDB execute those. A line that starts with `DELIMITER` is rejected. Checksums use LF and ignore a leading BOM.
+
+The directory is empty on purpose. `0001_baseline.sql` comes from a rehearsed consolidated schema. Nothing in `deploy.sh` or `deploy.yml` calls the runner.

@@ -1,9 +1,12 @@
 """Forward-only numbered SQL runner.
 
 Files live in ``db/migrations/NNNN_slug.sql``. The runner creates
-``schema_migrations`` itself, applies each pending file, and records the
-file only after every statement succeeds. It does not know about prod
-deploys: ``deploy.sh`` and ``deploy.yml`` do not call it.
+``schema_migrations`` itself and records a file only after every statement
+in it has been sent. MySQL and TiDB commit each DDL statement immediately,
+so a failure midway leaves the earlier statements applied. The file is not
+recorded, and the error says which statements already ran.
+
+``deploy.sh`` and ``deploy.yml`` do not call this module.
 """
 
 from __future__ import annotations
@@ -129,9 +132,11 @@ def discover(directory: Path) -> list[Migration]:
                 )
             continue
         version = int(match.group(1))
+        if version == 0:
+            raise MigrationError("migration numbers start at 0001")
         if version in found:
             raise MigrationError(f"duplicate migration number {version:04d}")
-        sql = path.read_text(encoding="utf-8")
+        sql = normalize_sql(path.read_text(encoding="utf-8-sig"))
         checksum = hashlib.sha256(sql.encode("utf-8")).hexdigest()
         found[version] = Migration(version, match.group(2), path, checksum, sql)
     versions = sorted(found)
@@ -357,13 +362,19 @@ def apply_pending(cursor, migrations: list[Migration], *, to: int | None = None)
             continue
         if to is not None and migration.version > to:
             continue
-        for statement in split_sql(migration.sql):
+        statements = split_sql(migration.sql)
+        for index, statement in enumerate(statements, start=1):
             try:
                 cursor.execute(statement)
             except Exception as exc:
-                raise MigrationError(
-                    f"{migration.version:04d}_{migration.name} failed on: {statement}"
-                ) from exc
+                earlier = index - 1
+                detail = f"{migration.version:04d}_{migration.name} failed on: {statement}"
+                if earlier:
+                    detail += (
+                        f"; statements 1-{earlier} of {len(statements)} already ran "
+                        "and were not rolled back; repair the schema by hand"
+                    )
+                raise MigrationError(detail) from exc
         cursor.execute(
             """
             INSERT INTO schema_migrations (version, name, checksum, applied_at)
