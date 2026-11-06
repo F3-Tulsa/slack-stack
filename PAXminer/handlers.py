@@ -56,8 +56,10 @@ def _try_bootstrap_pm_slack_token() -> None:
         return
     from common.token_bootstrap import upsert_paxminer_slack_token
 
-    registry = _pm_schema()
-    regional = f"{f3}_{st}"
+    from region_data import database_schema
+
+    registry = database_schema()
+    regional = database_schema()
     upsert_paxminer_slack_token(
         registry_schema=registry,
         region_key=f3,

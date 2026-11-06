@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS region_config (
     HOME_AO_CAPTURE INT NULL,
     NO_Q_THRESHOLD_WEEKS INT NULL,
     NO_Q_THRESHOLD_POSTS INT NULL,
-    timezone VARCHAR(45) NOT NULL,
+    timezone VARCHAR(45) NOT NULL DEFAULT 'America/Chicago',
     log_channel VARCHAR(100) NULL,
     team_id VARCHAR(100) NULL,
     workspace_name VARCHAR(100) NULL,
