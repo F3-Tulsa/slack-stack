@@ -18,6 +18,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 MIGRATION_FILE = re.compile(r"^(\d{4})_([a-z0-9_]+)\.sql$")
+CREATED_OBJECT = re.compile(
+    r"^CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?"
+    r"[`\"]?([A-Za-z0-9_]+)",
+    re.IGNORECASE,
+)
 REGION_NAME = re.compile(r"^[a-z0-9]+$")
 STAGES = ("test", "rehearsal", "prod")
 APP_REGION_NAMES = frozenset({"paxminer", "slackblast", "qsignups", "weaselbot"})
@@ -434,6 +439,67 @@ def recorded_or_none(cursor) -> dict[int, str] | None:
         raise
 
 
+def created_names(migrations: list[Migration]) -> list[str]:
+    """Table and view names from CREATE statements. This is not a SQL parser."""
+    names: list[str] = []
+    for migration in migrations:
+        for statement in split_sql(migration.sql):
+            match = CREATED_OBJECT.match(statement)
+            if match:
+                names.append(match.group(1))
+    return names
+
+
+def mark_applied(
+    cursor,
+    schema: str,
+    migrations: list[Migration],
+    version: int,
+    *,
+    yes: bool,
+) -> list[int]:
+    """Record versions 1..N without executing them. Dry run unless yes."""
+    if not migrations:
+        raise MigrationError("no migration files to mark")
+    highest = migrations[-1].version
+    if version < 1 or version > highest:
+        raise MigrationError(f"--mark-applied {version} is past the last file {highest:04d}")
+    chosen = [migration for migration in migrations if migration.version <= version]
+    recorded = recorded_or_none(cursor)
+    if recorded:
+        raise MigrationError("schema_migrations already has rows")
+    missing = []
+    for name in created_names(chosen):
+        cursor.execute(
+            """
+            SELECT TABLE_NAME AS name FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s
+            """,
+            (schema, name),
+        )
+        if cursor.fetchone() is None:
+            missing.append(name)
+    if missing:
+        raise MigrationError("missing tables or views: " + ", ".join(missing))
+    if not yes:
+        return [migration.version for migration in chosen]
+    ensure_bookkeeping(cursor)
+    for migration in chosen:
+        cursor.execute(
+            """
+            INSERT INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (
+                migration.version,
+                migration.name,
+                migration.checksum,
+                datetime.now(timezone.utc).replace(tzinfo=None),
+            ),
+        )
+    return [migration.version for migration in chosen]
+
+
 def run(directory: Path, schema: str, settings: dict, *, to: int | None, check: bool) -> History | ApplyResult:
     migrations = discover(directory)
     conn = connect(settings)
@@ -493,9 +559,39 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Report pending and ahead versions without writing",
     )
+    parser.add_argument(
+        "--mark-applied",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Record files 1..N without executing them",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Write the rows for --mark-applied. Without this, it only prints.",
+    )
     args = parser.parse_args(argv)
     try:
         schema, settings = load_invocation(args)
+        if args.mark_applied is not None:
+            migrations = discover(args.migrations)
+            conn = connect(settings)
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute(f"USE `{schema}`")
+                    marked = mark_applied(
+                        cursor,
+                        schema,
+                        migrations,
+                        args.mark_applied,
+                        yes=args.yes,
+                    )
+            finally:
+                conn.close()
+            verb = "recorded" if args.yes else "would record"
+            print(verb + " " + ", ".join(f"{n:04d}" for n in marked))
+            return 0
         result = run(args.migrations, schema, settings, to=args.to, check=args.check)
     except MigrationError as exc:
         print(f"error: {exc}", file=sys.stderr)

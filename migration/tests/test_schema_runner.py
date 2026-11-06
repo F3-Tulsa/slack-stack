@@ -18,14 +18,16 @@ from migrate import (  # noqa: E402
     derived_schema,
     discover,
     load_invocation,
+    mark_applied,
     plan_history,
     split_sql,
 )
 
 
 class FakeCursor:
-    def __init__(self, recorded: list[dict] | None = None):
+    def __init__(self, recorded: list[dict] | None = None, present: set[str] | None = None):
         self.recorded = list(recorded or [])
+        self.present = set(present or [])
         self.statements: list[str] = []
         self.fail_on: str | None = None
 
@@ -33,6 +35,10 @@ class FakeCursor:
         text = " ".join(sql.split())
         if self.fail_on and self.fail_on in text:
             raise RuntimeError("statement failed")
+        if "information_schema.TABLES" in text:
+            name = args[1]
+            self._rows = [{"name": name}] if name in self.present else []
+            return
         if text.startswith("SELECT version, checksum"):
             self._rows = list(self.recorded)
             return
@@ -46,6 +52,10 @@ class FakeCursor:
 
     def fetchall(self):
         return list(getattr(self, "_rows", []))
+
+    def fetchone(self):
+        rows = self.fetchall()
+        return rows[0] if rows else None
 
 
 def _migration(tmp_path: Path, version: int, slug: str, sql: str) -> None:
@@ -248,3 +258,32 @@ def test_check_reports_pending_changed_and_current():
     assert current.ahead == []
     with pytest.raises(MigrationError, match="checksum"):
         plan_history([migration], {1: "zzz"})
+
+
+def test_mark_applied_dry_run_writes_nothing_and_yes_records_checksums():
+    migration = Migration(1, "alpha", Path("0001_alpha.sql"), "abc", "CREATE TABLE users (id INT);")
+    cursor = FakeCursor(present={"users"})
+    marked = mark_applied(cursor, "f3ttown_test", [migration], 1, yes=False)
+    assert marked == [1]
+    assert cursor.recorded == []
+    assert not any("schema_migrations" in statement for statement in cursor.statements)
+
+    marked = mark_applied(cursor, "f3ttown_test", [migration], 1, yes=True)
+    assert marked == [1]
+    assert cursor.recorded == [{"version": 1, "checksum": "abc"}]
+
+
+def test_mark_applied_refuses_rows_missing_tables_and_a_version_past_the_end():
+    migration = Migration(1, "alpha", Path("0001_alpha.sql"), "abc", "CREATE TABLE users (id INT);")
+    with pytest.raises(MigrationError, match="already has rows"):
+        mark_applied(
+            FakeCursor(recorded=[{"version": 1, "checksum": "abc"}], present={"users"}),
+            "f3ttown_test",
+            [migration],
+            1,
+            yes=True,
+        )
+    with pytest.raises(MigrationError, match="missing"):
+        mark_applied(FakeCursor(), "f3ttown_test", [migration], 1, yes=False)
+    with pytest.raises(MigrationError, match="past the last file"):
+        mark_applied(FakeCursor(present={"users"}), "f3ttown_test", [migration], 2, yes=False)
