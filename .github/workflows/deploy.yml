@@ -156,6 +156,15 @@ jobs:
             exit 1
           fi
 
+      - name: Validate F3_REGION_NAME
+        env:
+          F3_REGION_NAME: ${{ vars.F3_REGION_NAME }}
+        run: |
+          if [[ ! "$F3_REGION_NAME" =~ ^[a-z0-9]+$ ]]; then
+            echo "::error::F3_REGION_NAME must match ^[a-z0-9]+$ (got '${F3_REGION_NAME}')"
+            exit 1
+          fi
+
       - name: Validate Slack OAuth client IDs
         env:
           SB_ID: ${{ vars.SB_SLACK_CLIENT_ID }}
