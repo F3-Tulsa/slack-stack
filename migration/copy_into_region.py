@@ -1,9 +1,9 @@
-"""Copy Tulsa's three test schemas into f3ttown_test. Does not drop anything.
+"""Copy one region's app schemas into f3ttown_<stage>. Does not drop anything.
 
 The apps still read the old schemas. This only adds tables and rows beside
-the regional data that is already in f3ttown_test. It refuses every env file
-whose name does not end in .test, and it refuses any schema other than
-f3ttown_test. Default is a dry run. --yes writes.
+the regional data that is already in the region schema. It writes ``test`` or
+``rehearsal`` and refuses ``prod``. The region name has to be ``f3ttown``.
+Default is a dry run. --yes writes.
 
 Bolt tables are copied from Slackblast first, then QSignups rows whose
 client_id is not already present. Their autoincrement ids are not preserved
@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -29,24 +30,50 @@ from migrate import (  # noqa: E402
     stage_from_filename,
 )
 
-TARGET = "f3ttown_test"
-SOURCES = {
-    "paxminer": "paxminer_test",
-    "slackblast": "slackblast_test",
-    "qsignups": "qsignups_test",
-}
-PLAIN_TABLES = (
-    ("slackblast_test", "slackblast_users"),
-    ("slackblast_test", "welcome_deliveries"),
-    ("slackblast_test", "interaction_claims"),
-    ("qsignups_test", "qsignups_aos"),
-    ("qsignups_test", "qsignups_features"),
-    ("qsignups_test", "qsignups_master"),
-    ("qsignups_test", "qsignups_regions"),
-    ("qsignups_test", "qsignups_weekly"),
-    ("paxminer_test", "region_report_definitions"),
-    ("paxminer_test", "region_schedules"),
-)
+REGION = "f3ttown"
+WRITABLE_STAGES = ("test", "rehearsal")
+
+
+@dataclass(frozen=True)
+class CopyTarget:
+    stage: str
+    region: str
+    target: str
+    paxminer: str
+    slackblast: str
+    qsignups: str
+
+
+def target_for(stage: str) -> CopyTarget:
+    if stage not in WRITABLE_STAGES:
+        raise MigrationError(f"refusing stage {stage!r}; this copy writes test or rehearsal only")
+    return CopyTarget(
+        stage=stage,
+        region=REGION,
+        target=f"{REGION}_{stage}",
+        paxminer=f"paxminer_{stage}",
+        slackblast=f"slackblast_{stage}",
+        qsignups=f"qsignups_{stage}",
+    )
+
+
+TEST = target_for("test")
+TARGET = TEST.target
+
+
+def plain_tables(dest: CopyTarget) -> tuple[tuple[str, str], ...]:
+    return (
+        (dest.slackblast, "slackblast_users"),
+        (dest.slackblast, "welcome_deliveries"),
+        (dest.slackblast, "interaction_claims"),
+        (dest.qsignups, "qsignups_aos"),
+        (dest.qsignups, "qsignups_features"),
+        (dest.qsignups, "qsignups_master"),
+        (dest.qsignups, "qsignups_regions"),
+        (dest.qsignups, "qsignups_weekly"),
+        (dest.paxminer, "region_report_definitions"),
+        (dest.paxminer, "region_schedules"),
+    )
 BOLT_TABLES = ("slack_bots", "slack_installations", "slack_oauth_states")
 VIEWS = ("vw_aos_sort", "vw_master_events", "vw_weekly_events")
 DEFINER = re.compile(r"\s*DEFINER\s*=\s*\S+", re.IGNORECASE)
@@ -99,15 +126,14 @@ CREATE TABLE IF NOT EXISTS region_config (
 """
 
 
-def guard(path: Path) -> tuple[str, dict]:
-    """Only the test env file, and only f3ttown_test."""
-    if stage_from_filename(path) != "test":
-        raise MigrationError(f"{path.name} is not a test env file")
+def guard(path: Path) -> tuple[CopyTarget, dict]:
+    """A test or rehearsal env file whose region schema is f3ttown_<stage>."""
+    dest = target_for(stage_from_filename(path))
     env = parse_env_file(path)
-    schema = derived_schema(env.get("F3_REGION_NAME", ""), "test")
-    if schema != TARGET:
-        raise MigrationError(f"refusing schema {schema!r}; this copy is for {TARGET} only")
-    return schema, connection_settings(env, "TARGET")
+    schema = derived_schema(env.get("F3_REGION_NAME", ""), dest.stage)
+    if schema != dest.target:
+        raise MigrationError(f"refusing schema {schema!r}; this copy is for {dest.target} only")
+    return dest, connection_settings(env, "TARGET")
 
 
 def _table_exists(cursor, schema: str, table: str) -> bool:
@@ -138,74 +164,76 @@ def _columns(cursor, schema: str, table: str) -> list[str]:
     return [row["name"] for row in cursor.fetchall()]
 
 
-def copy_table(cursor, source: str, table: str, *, yes: bool) -> str:
+def copy_table(cursor, source: str, table: str, *, dest: CopyTarget, yes: bool) -> str:
     source_count = _count(cursor, source, table)
-    if _table_exists(cursor, TARGET, table):
-        target_count = _count(cursor, TARGET, table)
+    if _table_exists(cursor, dest.target, table):
+        target_count = _count(cursor, dest.target, table)
         if target_count != source_count:
             raise MigrationError(
                 f"{table}: target has {target_count} rows and source has {source_count}; "
-                "drop it in f3ttown_test and run again"
+                f"drop it in {dest.target} and run again"
             )
-        return f"skip {TARGET}.{table}: source {source_count} target {target_count}"
+        return f"skip {dest.target}.{table}: source {source_count} target {target_count}"
     if yes:
-        cursor.execute(f"CREATE TABLE `{TARGET}`.`{table}` LIKE `{source}`.`{table}`")
-        cursor.execute(f"INSERT INTO `{TARGET}`.`{table}` SELECT * FROM `{source}`.`{table}`")
-        target_count = _count(cursor, TARGET, table)
+        cursor.execute(f"CREATE TABLE `{dest.target}`.`{table}` LIKE `{source}`.`{table}`")
+        cursor.execute(
+            f"INSERT INTO `{dest.target}`.`{table}` SELECT * FROM `{source}`.`{table}`"
+        )
+        target_count = _count(cursor, dest.target, table)
         return (
-            f"copy {source}.{table} -> {TARGET}.{table} "
+            f"copy {source}.{table} -> {dest.target}.{table} "
             f"(source {source_count}, target {target_count})"
         )
-    return f"copy {source}.{table} -> {TARGET}.{table} ({source_count} rows)"
+    return f"copy {source}.{table} -> {dest.target}.{table} ({source_count} rows)"
 
 
-def copy_bolt(cursor, table: str, *, yes: bool) -> list[str]:
+def copy_bolt(cursor, table: str, *, dest: CopyTarget, yes: bool) -> list[str]:
     """Slackblast rows first, including ids. QSignups rows after, without ids."""
     notes = []
-    if not _table_exists(cursor, TARGET, table):
-        notes.append(copy_table(cursor, "slackblast_test", table, yes=yes))
+    if not _table_exists(cursor, dest.target, table):
+        notes.append(copy_table(cursor, dest.slackblast, table, dest=dest, yes=yes))
     else:
-        source_count = _count(cursor, "slackblast_test", table)
-        target_count = _count(cursor, TARGET, table)
+        source_count = _count(cursor, dest.slackblast, table)
+        target_count = _count(cursor, dest.target, table)
         if target_count == 0 and source_count > 0:
             raise MigrationError(
                 f"{table}: target has 0 rows and source has {source_count}; "
-                "drop it in f3ttown_test and run again"
+                f"drop it in {dest.target} and run again"
             )
-        notes.append(f"skip {TARGET}.{table}: source {source_count} target {target_count}")
+        notes.append(f"skip {dest.target}.{table}: source {source_count} target {target_count}")
     if table == "slack_oauth_states":
-        notes.append("skip qsignups_test.slack_oauth_states: single-use, not merged")
+        notes.append(f"skip {dest.qsignups}.slack_oauth_states: single-use, not merged")
         return notes
-    columns = [name for name in _columns(cursor, "qsignups_test", table) if name != "id"]
+    columns = [name for name in _columns(cursor, dest.qsignups, table) if name != "id"]
     quoted = ", ".join(f"`{name}`" for name in columns)
     insert = (
-        f"INSERT INTO `{TARGET}`.`{table}` ({quoted}) "
-        f"SELECT {quoted} FROM `qsignups_test`.`{table}` s "
-        f"WHERE s.client_id NOT IN (SELECT client_id FROM `{TARGET}`.`{table}`)"
+        f"INSERT INTO `{dest.target}`.`{table}` ({quoted}) "
+        f"SELECT {quoted} FROM `{dest.qsignups}`.`{table}` s "
+        f"WHERE s.client_id NOT IN (SELECT client_id FROM `{dest.target}`.`{table}`)"
     )
     if "client_id" not in columns:
         insert = (
-            f"INSERT INTO `{TARGET}`.`{table}` ({quoted}) "
-            f"SELECT {quoted} FROM `qsignups_test`.`{table}`"
+            f"INSERT INTO `{dest.target}`.`{table}` ({quoted}) "
+            f"SELECT {quoted} FROM `{dest.qsignups}`.`{table}`"
         )
-    pending = _count(cursor, "qsignups_test", table)
-    notes.append(f"merge qsignups_test.{table} ({pending} source rows)")
-    if yes and _table_exists(cursor, TARGET, table):
+    pending = _count(cursor, dest.qsignups, table)
+    notes.append(f"merge {dest.qsignups}.{table} ({pending} source rows)")
+    if yes and _table_exists(cursor, dest.target, table):
         cursor.execute(insert)
     return notes
 
 
-def copy_views(cursor, *, yes: bool) -> list[str]:
+def copy_views(cursor, *, dest: CopyTarget, yes: bool) -> list[str]:
     notes = []
     for view in VIEWS:
-        cursor.execute(f"SHOW CREATE VIEW `qsignups_test`.`{view}`")
+        cursor.execute(f"SHOW CREATE VIEW `{dest.qsignups}`.`{view}`")
         row = cursor.fetchone()
         ddl = row.get("Create View") or row.get("CREATE VIEW") or ""
         ddl = DEFINER.sub("", ddl)
-        ddl = ddl.replace("`qsignups_test`.", "")
+        ddl = ddl.replace(f"`{dest.qsignups}`.", "")
         notes.append(f"view {view}")
         if yes:
-            cursor.execute(f"USE `{TARGET}`")
+            cursor.execute(f"USE `{dest.target}`")
             cursor.execute(f"DROP VIEW IF EXISTS `{view}`")
             cursor.execute(ddl)
     return notes
@@ -221,18 +249,35 @@ def _require_one_region_row(cursor, schema: str, where: str, param: str) -> None
         raise MigrationError(f"{schema}.regions for {param}: expected 1 row, found {count}")
 
 
-def copy_region_config(cursor, *, yes: bool) -> str:
-    _require_one_region_row(cursor, "paxminer_test", "region=%s", "f3ttown")
-    _require_one_region_row(cursor, "slackblast_test", "paxminer_schema=%s", TARGET)
+def copy_region_config(cursor, *, dest: CopyTarget, yes: bool) -> str:
+    _require_one_region_row(cursor, dest.paxminer, "region=%s", dest.region)
+    _require_one_region_row(cursor, dest.slackblast, "paxminer_schema=%s", dest.target)
+    cursor.execute(
+        f"SELECT schema_name AS name FROM `{dest.paxminer}`.`regions` WHERE region=%s",
+        (dest.region,),
+    )
+    found = cursor.fetchone()
+    schema_name = found["name"] if found else None
+    if schema_name != dest.target:
+        raise MigrationError(
+            f"{dest.paxminer}.regions.schema_name for {dest.region} is {schema_name!r}; "
+            f"expected {dest.target}"
+        )
     created = ""
-    if not _table_exists(cursor, TARGET, "region_config"):
+    if not _table_exists(cursor, dest.target, "region_config"):
         if yes:
-            cursor.execute(REGION_CONFIG_DDL)
+            cursor.execute(
+                REGION_CONFIG_DDL.replace(
+                    "CREATE TABLE IF NOT EXISTS region_config",
+                    f"CREATE TABLE IF NOT EXISTS `{dest.target}`.`region_config`",
+                    1,
+                )
+            )
         created = "create region_config\n"
-    elif _count(cursor, TARGET, "region_config"):
+    elif _count(cursor, dest.target, "region_config"):
         return "skip region_config: already has a row"
     insert = f"""
-        INSERT INTO `{TARGET}`.region_config (
+        INSERT INTO `{dest.target}`.region_config (
             region, schema_name, active, slack_token, contact, scrape_backblasts,
             comments, send_achievements, region_achievements_channel,
             NO_POST_THRESHOLD, REMINDER_WEEKS, HOME_AO_CAPTURE,
@@ -259,37 +304,47 @@ def copy_region_config(cursor, *, yes: bool) -> str:
             s.strava_enabled, s.custom_fields, s.welcome_dm_enable, s.welcome_dm_template,
             s.welcome_channel_enable, s.welcome_channel,
             s.post_achievements_to_ao, s.created, s.updated
-        FROM paxminer_test.regions p
-        INNER JOIN slackblast_test.regions s ON s.paxminer_schema = p.schema_name
-        WHERE p.region = 'f3ttown'
+        FROM `{dest.paxminer}`.regions p
+        INNER JOIN `{dest.slackblast}`.regions s ON s.paxminer_schema = p.schema_name
+        WHERE p.region = %s
     """
     if yes:
-        cursor.execute(insert)
-    return created + "insert f3ttown into region_config from paxminer_test and slackblast_test"
+        cursor.execute(insert, (dest.region,))
+        if int(cursor.rowcount) != 1:
+            raise MigrationError(
+                f"region_config insert changed {cursor.rowcount} rows; expected 1"
+            )
+    return (
+        created
+        + f"insert {dest.region} into region_config from {dest.paxminer} and {dest.slackblast}"
+    )
 
 
-def run_copy(cursor, *, yes: bool) -> list[str]:
-    notes = [copy_table(cursor, source, table, yes=yes) for source, table in PLAIN_TABLES]
+def run_copy(cursor, dest: CopyTarget, *, yes: bool) -> list[str]:
+    notes = [
+        copy_table(cursor, source, table, dest=dest, yes=yes)
+        for source, table in plain_tables(dest)
+    ]
     for table in BOLT_TABLES:
-        notes.extend(copy_bolt(cursor, table, yes=yes))
-    notes.extend(copy_views(cursor, yes=yes))
-    notes.append(copy_region_config(cursor, yes=yes))
+        notes.extend(copy_bolt(cursor, table, dest=dest, yes=yes))
+    notes.extend(copy_views(cursor, dest=dest, yes=yes))
+    notes.append(copy_region_config(cursor, dest=dest, yes=yes))
     return notes
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Copy test schemas into f3ttown_test")
+    parser = argparse.ArgumentParser(description="Copy app schemas into f3ttown_<stage>")
     parser.add_argument("--env-file", type=Path, required=True)
     parser.add_argument("--yes", action="store_true", help="Write. Without this, only print.")
     args = parser.parse_args(argv)
     try:
-        _schema, settings = guard(args.env_file)
+        dest, settings = guard(args.env_file)
         from migrate import connect
 
         conn = connect(settings)
         try:
             with conn.cursor() as cursor:
-                for line in run_copy(cursor, yes=args.yes):
+                for line in run_copy(cursor, dest, yes=args.yes):
                     print(line)
         finally:
             conn.close()

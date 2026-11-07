@@ -125,6 +125,91 @@ def test_prepare_refuses_non_rehearsal_target():
     validate_copy_args("prod", "rehearsal")
 
 
+def test_rehearsal_copies_one_region_and_qsignups():
+    from prepare_rehearsal import COPY_BASES, schema_pairs
+
+    assert COPY_BASES == ("paxminer", "slackblast", "qsignups", "f3ttown")
+    pairs = schema_pairs("prod", "rehearsal")
+    sources = [src for src, _dst in pairs]
+    assert "qsignups_prod" in sources
+    assert "f3ttown_prod" in sources
+    assert not any(name.startswith("weaselbot_") or name.startswith("f3scissortail_") for name in sources)
+
+
+def test_collation_collision_uses_the_whole_unique_index():
+    from prepare_rehearsal import collation_collisions
+
+    class Cursor:
+        def __init__(self):
+            self.calls = []
+
+        def execute(self, sql, params=None):
+            self.calls.append(sql)
+
+        def fetchall(self):
+            return [
+                {
+                    "table_name": "bd_attendance",
+                    "index_name": "PRIMARY",
+                    "seq": 1,
+                    "column_name": "user_id",
+                    "data_type": "varchar",
+                },
+                {
+                    "table_name": "bd_attendance",
+                    "index_name": "PRIMARY",
+                    "seq": 2,
+                    "column_name": "date",
+                    "data_type": "varchar",
+                },
+            ]
+
+        def fetchone(self):
+            return {"hit": 1}
+
+    cursor = Cursor()
+    problems = collation_collisions(cursor, "f3ttown_prod")
+    assert problems == ["f3ttown_prod.bd_attendance.PRIMARY collides under utf8mb4_unicode_ci"]
+    grouped = [sql for sql in cursor.calls if "GROUP BY" in sql]
+    assert len(grouped) == 1
+    assert "user_id" in grouped[0] and "date" in grouped[0]
+
+
+def test_pointer_rewrite_covers_schedules_and_deactivates_other_regions():
+    from prepare_rehearsal import rewrite_registry_pointers, schema_mapping
+
+    class Cursor:
+        def __init__(self):
+            self.statements = []
+            self.rowcount = 1
+
+        def execute(self, sql, params=None):
+            self.statements.append((sql, params))
+            self.sql = sql
+
+        def fetchone(self):
+            return {"c": 1}
+
+        def fetchall(self):
+            if "SELECT region, schema_name, active" in self.sql:
+                return [
+                    {"region": "f3ttown", "schema_name": "f3ttown_rehearsal", "active": 1},
+                    {"region": "f3scissortail", "schema_name": "f3scissortail_prod", "active": 1},
+                ]
+            return []
+
+    cursor = Cursor()
+    result = rewrite_registry_pointers(cursor, schema_mapping("prod", "rehearsal"), "rehearsal")
+    text = "\n".join(sql for sql, _params in cursor.statements)
+    assert "region_report_definitions" in text
+    assert "region_schedules" in text
+    deactivated = [
+        params for sql, params in cursor.statements if "SET active=0" in sql
+    ]
+    assert deactivated == [("f3scissortail",)]
+    assert result["deactivated_missing_copy"] == 1
+
+
 def test_prepare_rewrite_view_strips_definer_and_swaps_schema():
     from prepare_rehearsal import rewrite_view_ddl, schema_mapping
 
@@ -184,6 +269,28 @@ def test_audit_snapshot_findings_unknown_code_and_orphan():
     assert "orphaned_award" in codes
     assert "plaintext_token" not in codes
     assert codes <= FAIL_CODES
+
+
+def test_take_snapshot_ignores_other_regions(monkeypatch):
+    import audit_achievements as audit
+
+    seen = []
+
+    def snap(_cur, name):
+        seen.append(name)
+        return {}
+
+    monkeypatch.setattr(audit, "snapshot_region", snap)
+    monkeypatch.setattr(audit, "snapshot_tokens", lambda _cur, _stage: [])
+    monkeypatch.setattr(audit, "_pm_schema", lambda _stage: "paxminer_rehearsal")
+
+    class Cursor:
+        def execute(self, sql, params=None):
+            raise AssertionError(sql)
+
+    result = audit.take_snapshot(Cursor(), "rehearsal")
+    assert seen == ["f3ttown_rehearsal"]
+    assert list(result["schemas"]) == ["f3ttown_rehearsal"]
 
 
 def test_audit_plaintext_token_is_a_finding():

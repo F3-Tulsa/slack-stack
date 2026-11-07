@@ -585,3 +585,47 @@ def test_rehearsal_file_reads_target_prefix(tmp_path):
     assert settings["host"] == "target.example"
     assert settings["user"] == "tu"
     assert settings["password"] == "tp"
+
+
+def test_rehearsed_baseline_names_every_table_and_view():
+    migrations = discover(_REPO / "db" / "migrations")
+    assert [item.version for item in migrations] == [1]
+    assert migrations[0].name == "baseline"
+    sql = migrations[0].sql
+    assert "DEFINER=" not in sql
+    assert "f3ttown_" not in sql
+    assert "FOREIGN KEY" not in sql.upper()
+    assert "AUTO_INCREMENT=" not in sql
+    assert "utf8mb4" in sql
+    names = created_names(migrations)
+    assert names == [
+        "achievement_versions",
+        "achievements_awarded",
+        "achievements_list",
+        "aos",
+        "bd_attendance",
+        "beatdowns",
+        "interaction_claims",
+        "qsignups_aos",
+        "qsignups_features",
+        "qsignups_master",
+        "qsignups_regions",
+        "qsignups_weekly",
+        "region_config",
+        "region_report_definitions",
+        "region_schedules",
+        "slack_bots",
+        "slack_installations",
+        "slack_oauth_states",
+        "slackblast_users",
+        "users",
+        "welcome_deliveries",
+        "achievements_view",
+        "attendance_view",
+        "backblast",
+        "beatdown_info",
+        "vw_aos_sort",
+        "vw_master_events",
+        "vw_weekly_events",
+    ]
+    assert all("SQL SECURITY INVOKER" in statement for statement in split_sql(sql) if "VIEW" in statement)
