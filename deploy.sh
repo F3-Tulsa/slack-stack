@@ -788,11 +788,20 @@ run_smoke_test_lambdas() {
     invoke_one_payload "paxminer-${STAGE}-paxminer-achievements" '{"source":"smoke","feature":"achievement_leaderboard"}' || smoke_rc=1
     invoke_one_payload "paxminer-${STAGE}-paxminer-schedule" '{"source":"smoke","dry_run":true}' || smoke_rc=1
   fi
+  function_name() {
+    local stack="$1" key="$2" arn
+    arn="$(aws cloudformation describe-stacks \
+      --stack-name "$stack" \
+      --region "$AWS_REGION" \
+      --query "Stacks[0].Outputs[?OutputKey=='${key}'].OutputValue | [0]" \
+      --output text)"
+    echo "${arn##*:}"
+  }
   if [[ "$SB_RC" -eq 0 ]]; then
-    invoke_one_payload "slackblast-${STAGE}-SlackblastFunction" '{"source":"smoke"}' || smoke_rc=1
+    invoke_one_payload "$(function_name "slackblast-${STAGE}" SlackblastFunction)" '{"source":"smoke"}' || smoke_rc=1
   fi
   if [[ "$QS_RC" -eq 0 ]]; then
-    invoke_one_payload "qsignups-${STAGE}-QSignupsFunction" '{"source":"smoke"}' || smoke_rc=1
+    invoke_one_payload "$(function_name "qsignups-${STAGE}" QSignupsFunction)" '{"source":"smoke"}' || smoke_rc=1
   fi
   return "$smoke_rc"
 }

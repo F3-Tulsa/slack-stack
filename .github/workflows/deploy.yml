@@ -454,13 +454,21 @@ jobs:
           else
             echo "Skipping PAXminer smoke test (stack not deployed this run)"
           fi
+          function_name() {
+            local stack="$1" key="$2" arn
+            arn="$(aws cloudformation describe-stacks \
+              --stack-name "$stack" \
+              --query "Stacks[0].Outputs[?OutputKey=='${key}'].OutputValue | [0]" \
+              --output text)"
+            echo "${arn##*:}"
+          }
           if [[ "${RUN_SB}" == "true" ]]; then
-            invoke_one "slackblast-${STAGE}-SlackblastFunction" '{"source":"smoke"}'
+            invoke_one "$(function_name "slackblast-${STAGE}" SlackblastFunction)" '{"source":"smoke"}'
           else
             echo "Skipping Slackblast smoke test (stack not deployed this run)"
           fi
           if [[ "${RUN_QS}" == "true" ]]; then
-            invoke_one "qsignups-${STAGE}-QSignupsFunction" '{"source":"smoke"}'
+            invoke_one "$(function_name "qsignups-${STAGE}" QSignupsFunction)" '{"source":"smoke"}'
           else
             echo "Skipping QSignups smoke test (stack not deployed this run)"
           fi
