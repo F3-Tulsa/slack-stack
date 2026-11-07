@@ -11,6 +11,28 @@ import re
 from pathlib import Path
 
 BASELINE = Path(__file__).resolve().parents[1] / "db" / "migrations" / "0001_baseline.sql"
+QSIGNUPS_TABLES = (
+    "qsignups_aos",
+    "qsignups_features",
+    "qsignups_master",
+    "qsignups_regions",
+    "qsignups_weekly",
+)
+
+
+def secondary_indexes(cursor, schema: str, tables: tuple[str, ...]) -> list[tuple[str, str]]:
+    """Non-primary indexes. TiDB rejects a collation change while one of these remains."""
+    cursor.execute(
+        """
+        SELECT TABLE_NAME AS table_name, INDEX_NAME AS index_name
+        FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA=%s AND TABLE_NAME IN %s AND INDEX_NAME <> 'PRIMARY'
+        GROUP BY TABLE_NAME, INDEX_NAME
+        ORDER BY TABLE_NAME, INDEX_NAME
+        """,
+        (schema, tables),
+    )
+    return [(row["table_name"], row["index_name"]) for row in cursor.fetchall()]
 
 # The sequence that succeeded on f3ttown_rehearsal. A CONVERT while these
 # indexes exist fails with TiDB 8200.
@@ -20,10 +42,6 @@ CONVERSION_SQL = (
     "MODIFY event_day_of_week VARCHAR(16) CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL, "
     "MODIFY event_time VARCHAR(16) CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL, "
     "MODIFY team_id VARCHAR(32) CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL",
-    "ALTER TABLE qsignups_aos DROP INDEX aos_idx",
-    "ALTER TABLE qsignups_master DROP INDEX master_idx",
-    "ALTER TABLE qsignups_regions DROP INDEX region_idx",
-    "ALTER TABLE qsignups_weekly DROP INDEX weekly_idx",
     "ALTER TABLE qsignups_aos CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_bin",
     "ALTER TABLE qsignups_features CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_bin",
     "ALTER TABLE qsignups_master CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_bin",
@@ -78,6 +96,9 @@ CONVERSION_SQL = (
     "ALTER TABLE qsignups_regions ADD UNIQUE KEY region_idx (team_id)",
     "ALTER TABLE qsignups_weekly ADD UNIQUE KEY weekly_idx "
     "(ao_channel_id, event_day_of_week, event_time, team_id)",
+    "ALTER TABLE qsignups_features ADD KEY region_id_fk (region_id)",
+    "ALTER TABLE achievement_versions MODIFY range_mode varchar(24) "
+    "COLLATE utf8mb4_unicode_ci DEFAULT NULL AFTER effective_to",
 )
 
 _COLUMN = re.compile(

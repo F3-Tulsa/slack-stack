@@ -44,8 +44,9 @@ class CopyTarget:
     qsignups: str
 
 
-def target_for(stage: str) -> CopyTarget:
-    if stage not in WRITABLE_STAGES:
+def target_for(stage: str, *, allow_prod: bool = False) -> CopyTarget:
+    allowed = WRITABLE_STAGES + (("prod",) if allow_prod else ())
+    if stage not in allowed:
         raise MigrationError(f"refusing stage {stage!r}; this copy writes test or rehearsal only")
     return CopyTarget(
         stage=stage,
@@ -126,9 +127,12 @@ CREATE TABLE IF NOT EXISTS region_config (
 """
 
 
-def guard(path: Path) -> tuple[CopyTarget, dict]:
-    """A test or rehearsal env file whose region schema is f3ttown_<stage>."""
-    dest = target_for(stage_from_filename(path))
+def guard(path: Path, *, allow_prod: bool = False) -> tuple[CopyTarget, dict]:
+    """A test or rehearsal env file whose region schema is f3ttown_<stage>.
+
+    ``allow_prod`` is the cutover switch. Without it, a prod env file is refused.
+    """
+    dest = target_for(stage_from_filename(path), allow_prod=allow_prod)
     env = parse_env_file(path)
     schema = derived_schema(env.get("F3_REGION_NAME", ""), dest.stage)
     if schema != dest.target:
@@ -336,9 +340,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Copy app schemas into f3ttown_<stage>")
     parser.add_argument("--env-file", type=Path, required=True)
     parser.add_argument("--yes", action="store_true", help="Write. Without this, only print.")
+    parser.add_argument(
+        "--allow-prod",
+        action="store_true",
+        help="Required to copy into f3ttown_prod. The cutover runbook is the only reason to pass this.",
+    )
     args = parser.parse_args(argv)
     try:
-        dest, settings = guard(args.env_file)
+        dest, settings = guard(args.env_file, allow_prod=args.allow_prod)
         from migrate import connect
 
         conn = connect(settings)

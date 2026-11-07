@@ -76,9 +76,8 @@ def test_differences_flag_collation_width_index_and_extra_column():
     assert "extra table extra" in found
 
 
-def test_conversion_drops_indexes_before_convert():
+def test_conversion_recreates_weekly_idx_after_convert():
     text = "\n".join(CONVERSION_SQL)
-    assert text.index("DROP INDEX weekly_idx") < text.index("qsignups_weekly CONVERT")
     assert text.index("qsignups_weekly CONVERT") < text.index("ADD UNIQUE KEY weekly_idx")
     assert "VARCHAR(32)" in text
     assert "utf8mb4_unicode_ci" in text
