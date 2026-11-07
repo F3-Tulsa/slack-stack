@@ -788,6 +788,12 @@ run_smoke_test_lambdas() {
     invoke_one_payload "paxminer-${STAGE}-paxminer-achievements" '{"source":"smoke","feature":"achievement_leaderboard"}' || smoke_rc=1
     invoke_one_payload "paxminer-${STAGE}-paxminer-schedule" '{"source":"smoke","dry_run":true}' || smoke_rc=1
   fi
+  if [[ "$SB_RC" -eq 0 ]]; then
+    invoke_one_payload "slackblast-${STAGE}-SlackblastFunction" '{"source":"smoke"}' || smoke_rc=1
+  fi
+  if [[ "$QS_RC" -eq 0 ]]; then
+    invoke_one_payload "qsignups-${STAGE}-QSignupsFunction" '{"source":"smoke"}' || smoke_rc=1
+  fi
   return "$smoke_rc"
 }
 

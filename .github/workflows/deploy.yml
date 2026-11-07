@@ -156,6 +156,15 @@ jobs:
             exit 1
           fi
 
+      - name: Validate F3_REGION_NAME
+        env:
+          F3_REGION_NAME: ${{ vars.F3_REGION_NAME }}
+        run: |
+          if [[ ! "$F3_REGION_NAME" =~ ^[a-z0-9]+$ ]]; then
+            echo "::error::F3_REGION_NAME must match ^[a-z0-9]+$ (got '${F3_REGION_NAME}')"
+            exit 1
+          fi
+
       - name: Validate Slack OAuth client IDs
         env:
           SB_ID: ${{ vars.SB_SLACK_CLIENT_ID }}
@@ -401,6 +410,8 @@ jobs:
           STAGE: ${{ vars.STAGE }}
           AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
           RUN_PM: ${{ needs.detect-changes.outputs.run_paxminer }}
+          RUN_SB: ${{ needs.detect-changes.outputs.run_slackblast }}
+          RUN_QS: ${{ needs.detect-changes.outputs.run_qsignups }}
         run: |
           set -euo pipefail
           invoke_one() {
@@ -442,6 +453,16 @@ jobs:
             invoke_one "paxminer-${STAGE}-paxminer-schedule" '{"source":"smoke","dry_run":true}'
           else
             echo "Skipping PAXminer smoke test (stack not deployed this run)"
+          fi
+          if [[ "${RUN_SB}" == "true" ]]; then
+            invoke_one "slackblast-${STAGE}-SlackblastFunction" '{"source":"smoke"}'
+          else
+            echo "Skipping Slackblast smoke test (stack not deployed this run)"
+          fi
+          if [[ "${RUN_QS}" == "true" ]]; then
+            invoke_one "qsignups-${STAGE}-QSignupsFunction" '{"source":"smoke"}'
+          else
+            echo "Skipping QSignups smoke test (stack not deployed this run)"
           fi
 
       - name: Deploy summary, receipt, and stage Slack manifests
