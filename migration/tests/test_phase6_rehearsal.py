@@ -125,6 +125,34 @@ def test_prepare_refuses_non_rehearsal_target():
     validate_copy_args("prod", "rehearsal")
 
 
+def test_rehearsal_copies_one_region_and_qsignups():
+    from prepare_rehearsal import COPY_BASES, schema_pairs
+
+    assert COPY_BASES == ("paxminer", "slackblast", "qsignups", "f3ttown")
+    pairs = schema_pairs("prod", "rehearsal")
+    sources = [src for src, _dst in pairs]
+    assert "qsignups_prod" in sources
+    assert "f3ttown_prod" in sources
+    assert not any(name.startswith("weaselbot_") or name.startswith("f3scissortail_") for name in sources)
+
+
+def test_collation_collision_aborts():
+    from prepare_rehearsal import collation_collisions
+
+    class Cursor:
+        def execute(self, sql, params=None):
+            self.sql = sql
+
+        def fetchall(self):
+            return [{"table_name": "aos", "column_name": "ao"}]
+
+        def fetchone(self):
+            return {"k": "pit", "c": 2}
+
+    problems = collation_collisions(Cursor(), "f3ttown_prod")
+    assert problems == ["f3ttown_prod.aos.ao collides under utf8mb4_unicode_ci"]
+
+
 def test_prepare_rewrite_view_strips_definer_and_swaps_schema():
     from prepare_rehearsal import rewrite_view_ddl, schema_mapping
 

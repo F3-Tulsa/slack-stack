@@ -38,7 +38,9 @@ LOG = logging.getLogger(__name__)
 
 REHEARSAL_STAGE = "rehearsal"
 SOURCE_STAGE_ALLOWED = "prod"
-COPY_BASES = ("paxminer", "weaselbot", "slackblast", "f3ttown", "f3scissortail")
+# One region. weaselbot_* was dropped. Scissortail is not part of this rehearsal.
+# qsignups is included so the replica has the schedule tables and Bolt rows.
+COPY_BASES = ("paxminer", "slackblast", "qsignups", "f3ttown")
 DUMMY_TOKEN = "xoxb-rehearsal-not-a-real-token"
 
 # Long enough for server-side INSERT ... SELECT of large regional tables.
@@ -269,8 +271,11 @@ def neutralize_tokens(cur, target_stage: str) -> dict:
     counts = {}
     targets = [
         (f"paxminer_{target_stage}", "regions", "slack_token"),
-        (f"weaselbot_{target_stage}", "regions", "slack_token"),
         (f"slackblast_{target_stage}", "regions", "bot_token"),
+        (f"slackblast_{target_stage}", "slack_bots", "bot_token"),
+        (f"slackblast_{target_stage}", "slack_installations", "bot_token"),
+        (f"qsignups_{target_stage}", "slack_bots", "bot_token"),
+        (f"qsignups_{target_stage}", "slack_installations", "bot_token"),
     ]
     for schema, table, column in targets:
         key = f"{schema}.{table}.{column}"
@@ -289,6 +294,46 @@ def neutralize_tokens(cur, target_stage: str) -> dict:
         counts[key] = int(cur.rowcount or 0)
         LOG.info("Neutralized %s non-empty token(s) on %s", counts[key], key)
     return counts
+
+
+_IDENT = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def text_key_columns(cur, schema: str) -> list[tuple[str, str]]:
+    """Unique or primary-key columns whose text comparison changes under unicode_ci."""
+    cur.execute(
+        """
+        SELECT s.TABLE_NAME AS table_name, s.COLUMN_NAME AS column_name
+        FROM information_schema.STATISTICS s
+        JOIN information_schema.COLUMNS c
+          ON c.TABLE_SCHEMA = s.TABLE_SCHEMA
+         AND c.TABLE_NAME = s.TABLE_NAME
+         AND c.COLUMN_NAME = s.COLUMN_NAME
+        WHERE s.TABLE_SCHEMA = %s
+          AND s.NON_UNIQUE = 0
+          AND c.DATA_TYPE IN ('char', 'varchar', 'tinytext', 'text', 'mediumtext', 'longtext')
+        GROUP BY s.TABLE_NAME, s.COLUMN_NAME
+        """,
+        (schema,),
+    )
+    return [(row["table_name"], row["column_name"]) for row in cur.fetchall()]
+
+
+def collation_collisions(cur, schema: str) -> list[str]:
+    """Names of text keys that are not unique under utf8mb4_unicode_ci."""
+    problems = []
+    for table, column in text_key_columns(cur, schema):
+        if not _IDENT.fullmatch(table) or not _IDENT.fullmatch(column) or not _IDENT.fullmatch(schema):
+            continue
+        cur.execute(
+            f"SELECT `{column}` COLLATE utf8mb4_unicode_ci AS k, COUNT(*) AS c "
+            f"FROM `{schema}`.`{table}` "
+            f"GROUP BY `{column}` COLLATE utf8mb4_unicode_ci "
+            f"HAVING COUNT(*) > 1 LIMIT 1"
+        )
+        if cur.fetchone():
+            problems.append(f"{schema}.{table}.{column} collides under utf8mb4_unicode_ci")
+    return problems
 
 
 def report_preflight(cur, source_stage: str, target_stage: str) -> int:
@@ -332,6 +377,8 @@ def report_preflight(cur, source_stage: str, target_stage: str) -> int:
             problems.append(f"source schema {src} does not exist")
         if dst_sz is None:
             problems.append(f"target schema {dst} does not exist (pre-create empty databases as admin)")
+        if src_sz is not None:
+            problems.extend(collation_collisions(cur, src))
     if problems:
         print("PREFLIGHT FAILED:", flush=True)
         for p in problems:

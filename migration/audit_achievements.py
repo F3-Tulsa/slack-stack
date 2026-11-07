@@ -443,7 +443,7 @@ def take_snapshot(cur, stage: str) -> dict:
         names = []
     # Always include the expected regional schemas for this stage, even if
     # the registry is empty (pre-copy) or a row is inactive.
-    expected = [f"f3ttown_{stage}", f"f3scissortail_{stage}"]
+    expected = [f"f3ttown_{stage}"]
     for name in expected:
         if name not in names:
             names.append(name)
