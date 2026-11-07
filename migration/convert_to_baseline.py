@@ -19,7 +19,15 @@ _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "db"))
 sys.path.insert(0, str(_REPO / "migration"))
 
-from baseline_shape import BASELINE, CONVERSION_SQL, differences, fetch_live, parse_baseline  # noqa: E402
+from baseline_shape import (  # noqa: E402
+    BASELINE,
+    CONVERSION_SQL,
+    QSIGNUPS_TABLES,
+    differences,
+    fetch_live,
+    parse_baseline,
+    secondary_indexes,
+)
 from migrate import (  # noqa: E402
     MigrationError,
     connect,
@@ -32,9 +40,9 @@ from migrate import (  # noqa: E402
 WRITABLE = ("test", "rehearsal")
 
 
-def guard(path: Path, *, write: bool) -> tuple[str, dict]:
+def guard(path: Path, *, write: bool, allow_prod: bool = False) -> tuple[str, dict]:
     stage = stage_from_filename(path)
-    if write and stage not in WRITABLE:
+    if write and stage not in WRITABLE and not (stage == "prod" and allow_prod):
         raise MigrationError(f"refusing to convert stage {stage!r}; this tool writes test or rehearsal only")
     env = parse_env_file(path)
     schema = derived_schema(env.get("F3_REGION_NAME", ""), stage)
@@ -48,9 +56,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--env-file", type=Path, required=True)
     parser.add_argument("--yes", action="store_true", help="Write. Without this, only print.")
     parser.add_argument("--compare", action="store_true", help="Read-only diff against 0001.")
+    parser.add_argument(
+        "--allow-prod",
+        action="store_true",
+        help="Required to convert f3ttown_prod. The cutover runbook is the only reason to pass this.",
+    )
     args = parser.parse_args(argv)
     try:
-        schema, settings = guard(args.env_file, write=args.yes and not args.compare)
+        schema, settings = guard(
+            args.env_file,
+            write=args.yes and not args.compare,
+            allow_prod=args.allow_prod,
+        )
     except MigrationError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -69,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"{schema} matches 0001")
         return 0
+    print(f"-- drop every non-primary index on {', '.join(QSIGNUPS_TABLES)}")
     for statement in CONVERSION_SQL:
         print(statement + ";")
     if not args.yes:
@@ -78,6 +96,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with conn.cursor() as cursor:
             cursor.execute(f"USE `{schema}`")
+            for table, index in secondary_indexes(cursor, schema, QSIGNUPS_TABLES):
+                cursor.execute(f"ALTER TABLE `{table}` DROP INDEX `{index}`")
             for statement in CONVERSION_SQL:
                 cursor.execute(statement)
         conn.commit()

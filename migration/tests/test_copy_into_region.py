@@ -45,6 +45,18 @@ def test_bootstrap_insert_covers_required_region_config_columns():
     assert missing == []
 
 
+def test_guard_allows_prod_only_with_the_flag(tmp_path: Path):
+    path = tmp_path / ".env.migration.prod"
+    path.write_text(
+        "F3_REGION_NAME=f3ttown\nTARGET_HOST=h\nTARGET_USER=u\nTARGET_PASSWORD=p\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(MigrationError, match="refusing stage"):
+        guard(path)
+    dest, _settings = guard(path, allow_prod=True)
+    assert dest.target == "f3ttown_prod"
+
+
 def test_guard_refuses_a_prod_env_file(tmp_path: Path):
     path = tmp_path / ".env.migration.prod"
     path.write_text("F3_REGION_NAME=f3ttown\nTARGET_HOST=h\nTARGET_USER=u\nTARGET_PASSWORD=p\n", encoding="utf-8")
