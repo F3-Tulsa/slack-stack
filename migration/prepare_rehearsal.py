@@ -286,6 +286,8 @@ def neutralize_tokens(cur, target_stage: str) -> dict:
         (f"slackblast_{target_stage}", "slack_installations", "bot_token"),
         (f"qsignups_{target_stage}", "slack_bots", "bot_token"),
         (f"qsignups_{target_stage}", "slack_installations", "bot_token"),
+        (f"qsignups_{target_stage}", "qsignups_regions", "bot_token"),
+        (f"qsignups_{target_stage}", "slack_installations", "user_token"),
     ]
     for schema, table, column in targets:
         key = f"{schema}.{table}.{column}"
@@ -361,8 +363,10 @@ def collation_collisions(cur, schema: str) -> list[str]:
         return problems
     for table, index, cols in text_unique_indexes(cur, schema):
         if not _IDENT.fullmatch(table) or not _IDENT.fullmatch(index):
+            problems.append(f"{schema} skipped unreadable index {table}.{index}")
             continue
         if any(not _IDENT.fullmatch(name) for name, _dtype in cols):
+            problems.append(f"{schema} skipped unreadable index {table}.{index}")
             continue
         pieces = []
         guards = []
