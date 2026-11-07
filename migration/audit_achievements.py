@@ -433,20 +433,9 @@ def compare_snapshots(before: dict, after: dict) -> list[dict]:
 def take_snapshot(cur, stage: str) -> dict:
     pm_schema = _pm_schema(stage)
     schemas: dict[str, dict] = {}
-    if _table_exists(cur, pm_schema, "regions"):
-        cur.execute(
-            f"SELECT schema_name FROM `{pm_schema}`.`regions` "
-            "WHERE schema_name IS NOT NULL"
-        )
-        names = [row["schema_name"] for row in cur.fetchall() if row.get("schema_name")]
-    else:
-        names = []
-    # Always include the expected regional schemas for this stage, even if
-    # the registry is empty (pre-copy) or a row is inactive.
-    expected = [f"f3ttown_{stage}"]
-    for name in expected:
-        if name not in names:
-            names.append(name)
+    # One region. Other registry rows, including an inactive Scissortail row
+    # that still names f3scissortail_prod, stay out of the snapshot.
+    names = [f"f3ttown_{stage}"]
     for name in names:
         schemas[name] = snapshot_region(cur, name)
     return {

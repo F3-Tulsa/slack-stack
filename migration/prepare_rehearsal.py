@@ -220,7 +220,13 @@ def rewrite_registry_pointers(cur, mapping: dict[str, str], target_stage: str) -
     pm = f"paxminer_{target_stage}"
     wb = f"weaselbot_{target_stage}"
     sb = f"slackblast_{target_stage}"
-    updates = {"paxminer.schema_name": 0, "weaselbot.paxminer_schema": 0, "slackblast.paxminer_schema": 0}
+    updates = {
+        "paxminer.schema_name": 0,
+        "paxminer.report_schema_name": 0,
+        "paxminer.schedule_schema_name": 0,
+        "weaselbot.paxminer_schema": 0,
+        "slackblast.paxminer_schema": 0,
+    }
     deactivated = 0
 
     def _rewrite(schema: str, table: str, column: str, key: str) -> None:
@@ -237,6 +243,8 @@ def rewrite_registry_pointers(cur, mapping: dict[str, str], target_stage: str) -
             updates[key] += int(cur.rowcount or 0)
 
     _rewrite(pm, "regions", "schema_name", "paxminer.schema_name")
+    _rewrite(pm, "region_report_definitions", "schema_name", "paxminer.report_schema_name")
+    _rewrite(pm, "region_schedules", "schema_name", "paxminer.schedule_schema_name")
     _rewrite(wb, "regions", "paxminer_schema", "weaselbot.paxminer_schema")
     _rewrite(sb, "regions", "paxminer_schema", "slackblast.paxminer_schema")
 
@@ -246,17 +254,19 @@ def rewrite_registry_pointers(cur, mapping: dict[str, str], target_stage: str) -
             name = row.get("schema_name")
             if not name:
                 continue
-            if not _schema_exists(cur, name):
+            copied_here = str(name).endswith(f"_{target_stage}") and _schema_exists(cur, name)
+            if not copied_here:
                 cur.execute(
                     f"UPDATE `{pm}`.`regions` SET active=0 WHERE region=%s",
                     (row["region"],),
                 )
                 deactivated += int(cur.rowcount or 0)
                 LOG.warning(
-                    "Set %s.regions.active=0 for region=%s (schema_name=%s has no copy)",
+                    "Set %s.regions.active=0 for region=%s (schema_name=%s is not a %s copy)",
                     pm,
                     row.get("region"),
                     name,
+                    target_stage,
                 )
     return {**updates, "deactivated_missing_copy": deactivated}
 
@@ -297,13 +307,21 @@ def neutralize_tokens(cur, target_stage: str) -> dict:
 
 
 _IDENT = re.compile(r"^[A-Za-z0-9_]+$")
+_TEXT_TYPES = ("char", "varchar", "tinytext", "text", "mediumtext", "longtext")
 
 
-def text_key_columns(cur, schema: str) -> list[tuple[str, str]]:
-    """Unique or primary-key columns whose text comparison changes under unicode_ci."""
+def text_unique_indexes(cur, schema: str) -> list[tuple[str, str, list[tuple[str, str]]]]:
+    """Unique indexes that include a text column, columns in key order.
+
+    A column that only repeats inside a composite key is not a collision.
+    """
     cur.execute(
         """
-        SELECT s.TABLE_NAME AS table_name, s.COLUMN_NAME AS column_name
+        SELECT s.TABLE_NAME AS table_name,
+               s.INDEX_NAME AS index_name,
+               s.SEQ_IN_INDEX AS seq,
+               s.COLUMN_NAME AS column_name,
+               c.DATA_TYPE AS data_type
         FROM information_schema.STATISTICS s
         JOIN information_schema.COLUMNS c
           ON c.TABLE_SCHEMA = s.TABLE_SCHEMA
@@ -311,28 +329,56 @@ def text_key_columns(cur, schema: str) -> list[tuple[str, str]]:
          AND c.COLUMN_NAME = s.COLUMN_NAME
         WHERE s.TABLE_SCHEMA = %s
           AND s.NON_UNIQUE = 0
-          AND c.DATA_TYPE IN ('char', 'varchar', 'tinytext', 'text', 'mediumtext', 'longtext')
-        GROUP BY s.TABLE_NAME, s.COLUMN_NAME
+        ORDER BY s.TABLE_NAME, s.INDEX_NAME, s.SEQ_IN_INDEX
         """,
         (schema,),
     )
-    return [(row["table_name"], row["column_name"]) for row in cur.fetchall()]
+    grouped: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    order: list[tuple[str, str]] = []
+    for row in cur.fetchall():
+        key = (row["table_name"], row["index_name"])
+        if key not in grouped:
+            grouped[key] = []
+            order.append(key)
+        grouped[key].append((row["column_name"], row["data_type"]))
+    chosen = []
+    for table, index in order:
+        cols = grouped[(table, index)]
+        if any(dtype in _TEXT_TYPES for _, dtype in cols):
+            chosen.append((table, index, cols))
+    return chosen
 
 
 def collation_collisions(cur, schema: str) -> list[str]:
-    """Names of text keys that are not unique under utf8mb4_unicode_ci."""
+    """Unique indexes whose full key is not unique under utf8mb4_unicode_ci.
+
+    Text columns are converted to utf8mb4 first. Some QSignups keys are still
+    charset utf8, and ``COLLATE utf8mb4_unicode_ci`` is rejected on those.
+    NULL key parts are ignored: a unique index allows more than one NULL.
+    """
     problems = []
-    for table, column in text_key_columns(cur, schema):
-        if not _IDENT.fullmatch(table) or not _IDENT.fullmatch(column) or not _IDENT.fullmatch(schema):
+    if not _IDENT.fullmatch(schema):
+        return problems
+    for table, index, cols in text_unique_indexes(cur, schema):
+        if not _IDENT.fullmatch(table) or not _IDENT.fullmatch(index):
             continue
+        if any(not _IDENT.fullmatch(name) for name, _dtype in cols):
+            continue
+        pieces = []
+        guards = []
+        for name, dtype in cols:
+            if dtype in _TEXT_TYPES:
+                pieces.append(f"CONVERT(`{name}` USING utf8mb4) COLLATE utf8mb4_unicode_ci")
+            else:
+                pieces.append(f"`{name}`")
+            guards.append(f"COUNT(`{name}`) = COUNT(*)")
         cur.execute(
-            f"SELECT `{column}` COLLATE utf8mb4_unicode_ci AS k, COUNT(*) AS c "
-            f"FROM `{schema}`.`{table}` "
-            f"GROUP BY `{column}` COLLATE utf8mb4_unicode_ci "
-            f"HAVING COUNT(*) > 1 LIMIT 1"
+            f"SELECT 1 AS hit FROM `{schema}`.`{table}` "
+            f"GROUP BY {', '.join(pieces)} "
+            f"HAVING COUNT(*) > 1 AND {' AND '.join(guards)} LIMIT 1"
         )
         if cur.fetchone():
-            problems.append(f"{schema}.{table}.{column} collides under utf8mb4_unicode_ci")
+            problems.append(f"{schema}.{table}.{index} collides under utf8mb4_unicode_ci")
     return problems
 
 
