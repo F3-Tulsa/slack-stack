@@ -31,6 +31,7 @@ class FakeCursor:
     def __init__(self, recorded: list[dict] | None = None, present: set[str] | None = None):
         self.recorded = list(recorded or [])
         self.present = set(present or [])
+        self.other_tables = 0
         self.statements: list[str] = []
         self.fail_on: str | None = None
 
@@ -38,6 +39,9 @@ class FakeCursor:
         text = " ".join(sql.split())
         if self.fail_on and self.fail_on in text:
             raise RuntimeError("statement failed")
+        if "information_schema.TABLES" in text and "COUNT(*)" in text:
+            self._rows = [{"c": self.other_tables}]
+            return
         if "information_schema.TABLES" in text:
             name = args[1]
             self._rows = [{"name": name}] if name in self.present else []
@@ -503,6 +507,45 @@ class ContextCursor(FakeCursor):
 
 def _patch_connect(monkeypatch, cursor):
     monkeypatch.setattr("migrate.connect", lambda _settings: Connection(cursor))
+
+
+def test_run_refuses_existing_tables_when_nothing_is_recorded(tmp_path, monkeypatch):
+    migrations = tmp_path / "migrations"
+    migrations.mkdir()
+    (migrations / "0001_alpha.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    cursor = ContextCursor()
+    cursor.other_tables = 4
+    _patch_connect(monkeypatch, cursor)
+    with pytest.raises(MigrationError, match="mark-applied"):
+        run(
+            migrations,
+            "f3ttown_test",
+            {"host": "h", "port": 4000, "user": "u", "password": "p", "tls": True},
+            to=None,
+            check=False,
+        )
+    assert not any(statement == "SELECT 1" for statement in cursor.statements)
+
+
+def test_run_applies_pending_when_history_exists(tmp_path, monkeypatch):
+    migrations = tmp_path / "migrations"
+    migrations.mkdir()
+    (migrations / "0001_alpha.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    (migrations / "0002_beta.sql").write_text("SELECT 2;\n", encoding="utf-8")
+    checksum = discover(migrations)[0].checksum
+    cursor = ContextCursor(recorded=[{"version": 1, "checksum": checksum}])
+    cursor.other_tables = 4
+    _patch_connect(monkeypatch, cursor)
+    result = run(
+        migrations,
+        "f3ttown_test",
+        {"host": "h", "port": 4000, "user": "u", "password": "p", "tls": True},
+        to=None,
+        check=False,
+    )
+    assert result.applied == [2]
+    assert "SELECT 1" not in cursor.statements
+    assert "SELECT 2" in cursor.statements
 
 
 def test_run_creates_the_database_with_unicode_collation(tmp_path, monkeypatch):

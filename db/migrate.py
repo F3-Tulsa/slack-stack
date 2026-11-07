@@ -611,6 +611,20 @@ def run(directory: Path, schema: str, settings: dict, *, to: int | None, check: 
                 "DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
             )
             cursor.execute(f"USE `{schema}`")
+            if not recorded_or_none(cursor):
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) AS c FROM information_schema.TABLES
+                    WHERE TABLE_SCHEMA=%s AND TABLE_NAME <> 'schema_migrations'
+                    """,
+                    (schema,),
+                )
+                others = int(cursor.fetchone()["c"])
+                if others:
+                    raise MigrationError(
+                        f"{schema} already has {others} table(s) or view(s) and no schema_migrations rows; "
+                        "adopt it with --mark-applied, or drop the schema and run again if it holds no data"
+                    )
             ensure_bookkeeping(cursor)
             return apply_pending(cursor, migrations, to=to)
     finally:
