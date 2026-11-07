@@ -21,7 +21,7 @@ class DatabaseField:
 DATABASE_HOST = "DATABASE_HOST"
 ADMIN_DATABASE_USER = "ADMIN_DATABASE_USER"
 ADMIN_DATABASE_PASSWORD = "ADMIN_DATABASE_PASSWORD"
-ADMIN_DATABASE_SCHEMA = "ADMIN_DATABASE_SCHEMA"
+DATABASE_SCHEMA = "DATABASE_SCHEMA"
 DATABASE_PORT = "DATABASE_PORT"
 DATABASE_TLS_ENABLED = "DATABASE_TLS_ENABLED"
 
@@ -48,7 +48,7 @@ def get_engine(echo=False) -> Engine:
         host = os.environ[DATABASE_HOST]
         user = quote_plus(os.environ[ADMIN_DATABASE_USER])
         passwd = quote_plus(os.environ[ADMIN_DATABASE_PASSWORD])
-        database = os.environ[ADMIN_DATABASE_SCHEMA]
+        database = os.environ[DATABASE_SCHEMA]
         port = os.environ.get(DATABASE_PORT, "3306")
 
         db_url = f"mysql+pymysql://{user}:{passwd}@{host}:{port}/{database}?charset=utf8mb4"

@@ -5,7 +5,7 @@ from logging import Logger
 
 from slack_sdk.web import WebClient
 
-from utilities.database import DbManager
+from utilities.database import DbManager, paxminer_schema_name
 from utilities.database.orm import PaxminerUser, Region
 from utilities.helper_functions import (
     app_timezone,
@@ -94,8 +94,7 @@ def handle_preblast_post(body: dict, client: WebClient, logger: Logger, context:
     destination = safe_get(preblast_data, actions.PREBLAST_DESTINATION)
 
     user_records = None
-    if region_record.paxminer_schema:
-        user_records = DbManager.find_records(PaxminerUser, filters=[True], schema=region_record.paxminer_schema)
+    user_records = DbManager.find_records(PaxminerUser, filters=[True], schema=paxminer_schema_name())
 
     chan = destination
     if chan == "The_AO":

@@ -18,17 +18,16 @@ logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
 logger.addHandler(handler)
 
-PAXMINER_SCHEMA = os.environ.get("PAXMINER_SCHEMA", "paxminer")
-SLACKBLAST_SCHEMA = os.environ.get("ADMIN_DATABASE_SCHEMA", "slackblast")
-DEV_REGION_SCHEMA = os.environ.get("LOCAL_DEV_REGION_SCHEMA", "f3devregion")
+REGION_SCHEMA = os.environ.get("DATABASE_SCHEMA", "f3devregion")
 
 
 def create_tables():
     logger.info("Creating schemas and tables...")
 
     schema_table_map = {
-        SLACKBLAST_SCHEMA: [orm.Region, orm.User],
-        DEV_REGION_SCHEMA: [
+        REGION_SCHEMA: [
+            orm.Region,
+            orm.User,
             orm.Backblast,
             orm.Attendance,
             orm.PaxminerUser,
@@ -36,7 +35,6 @@ def create_tables():
             orm.AchievementsList,
             orm.AchievementsAwarded,
         ],
-        PAXMINER_SCHEMA: [orm.PaxminerRegion],
     }
 
     for schema, tables in schema_table_map.items():
@@ -102,23 +100,20 @@ def initialize_tables():
         ),
     ]
 
-    paxminer_region = [
-        orm.PaxminerRegion(
-            region="F3DevRegion",
+    region_row = [
+        orm.Region(
+            region=os.environ.get("F3_REGION_NAME") or "f3devregion",
+            schema_name=REGION_SCHEMA,
             slack_token=os.environ["SLACK_BOT_TOKEN"],
-            schema_name=DEV_REGION_SCHEMA,
+            timezone=os.environ.get("TIMEZONE") or "America/Chicago",
         )
     ]
 
-    session = get_session(schema=DEV_REGION_SCHEMA)
+    session = get_session(schema=REGION_SCHEMA)
     session.add_all(ao_list)
     session.add_all(user_list)
     session.add_all(achievement_list)
-    session.commit()
-    session.close()
-
-    session = get_session(schema=PAXMINER_SCHEMA)
-    session.add_all(paxminer_region)
+    session.add_all(region_row)
     session.commit()
     session.close()
 
@@ -128,9 +123,7 @@ def initialize_tables():
 def drop_database():
     logger.info("Resetting database...")
     session = get_session()
-    session.execute(text(f"DROP SCHEMA IF EXISTS `{DEV_REGION_SCHEMA}`;"))
-    session.execute(text(f"DROP SCHEMA IF EXISTS `{PAXMINER_SCHEMA}`;"))
-    session.execute(text(f"DROP SCHEMA IF EXISTS `{SLACKBLAST_SCHEMA}`;"))
+    session.execute(text(f"DROP SCHEMA IF EXISTS `{REGION_SCHEMA}`;"))
     session.commit()
     session.close()
 

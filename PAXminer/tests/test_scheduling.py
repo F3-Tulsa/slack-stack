@@ -189,7 +189,7 @@ def test_award_achievements_destination_and_dispatch():
         "schema_name": "f3test",
         "slack_token": "enc",
         "send_achievements": 0,
-        "achievement_channel": None,
+        "region_achievements_channel": None,
     }
     schedule = {
         "destination_type": "specific_channels",
@@ -812,7 +812,7 @@ def test_backfill_award_achievements_schedules_idempotent():
     cur = MagicMock()
     region = {
         "schema_name": "f3ttown_test",
-        "achievement_channel": "C_ACH",
+        "region_achievements_channel": "C_ACH",
         "send_achievements": 1,
     }
     cur.fetchall.return_value = [region]

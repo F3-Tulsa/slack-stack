@@ -60,18 +60,16 @@ def test_assert_test_only_rejects_prod_registry():
         seeder.assert_test_only("f3ttown_test", "paxminer_prod")
 
 
-def test_resolve_schemas_appends_test(monkeypatch):
-    monkeypatch.setenv("PAXMINER_SCHEMA", "paxminer")
-    monkeypatch.delenv("PM_REGIONAL_SCHEMA", raising=False)
+def test_resolve_schemas_uses_one_schema(monkeypatch):
+    monkeypatch.setenv("DATABASE_SCHEMA", "f3ttown_test")
     regional, registry = seeder.resolve_schemas("f3ttown_test")
     assert regional == "f3ttown_test"
-    assert registry == "paxminer_test"
+    assert registry == "f3ttown_test"
 
 
-def test_resolve_schemas_rejects_prod_paxminer_schema(monkeypatch):
-    monkeypatch.setenv("PAXMINER_SCHEMA", "paxminer_prod")
-    with pytest.raises(SystemExit, match="prod registry"):
-        seeder.resolve_schemas("f3ttown_test")
+def test_resolve_schemas_rejects_prod_schema():
+    with pytest.raises(SystemExit, match="prod schema"):
+        seeder.resolve_schemas("f3ttown_prod")
 
 
 def test_assert_slack_team_mismatch():
@@ -415,14 +413,14 @@ def test_ao_source_falls_back_when_no_qsignups_ao_is_live():
     assert all(cid != "CGONE" for _, cid in aos)
 
 
-def test_resolve_qsignups_schema_appends_test(monkeypatch):
-    monkeypatch.setenv("QSIGNUPS_SCHEMA", "qsignups")
-    assert seeder.resolve_qsignups_schema() == "qsignups_test"
+def test_resolve_qsignups_schema_uses_the_region_schema(monkeypatch):
+    monkeypatch.setenv("DATABASE_SCHEMA", "f3ttown_test")
+    assert seeder.resolve_qsignups_schema() == "f3ttown_test"
 
 
 def test_resolve_qsignups_schema_rejects_prod(monkeypatch):
-    monkeypatch.setenv("QSIGNUPS_SCHEMA", "qsignups_prod")
-    with pytest.raises(SystemExit, match="prod QSignups"):
+    monkeypatch.setenv("DATABASE_SCHEMA", "f3ttown_prod")
+    with pytest.raises(SystemExit, match="prod schema"):
         seeder.resolve_qsignups_schema()
 
 

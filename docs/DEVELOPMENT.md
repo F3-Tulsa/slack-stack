@@ -33,11 +33,7 @@ python3.12 -m venv .venv-qs && . .venv-qs/bin/activate && pip install pytest bot
 DB_ENCRYPTION_KEY='your-test-key-at-least-16' pytest -q qsignups/testing/
 ```
 
-All PAXminer tests run without a database. The miner's re-import decision logic
-(`determine_db_action` / `find_match`) is covered by
-`PAXminer/tests/test_BD_Update_Utils.py`, which replaced a live-DB
-`test_BD_Comparer.py` that opened a connection in its class body and therefore
-could never run in CI.
+All PAXminer tests run without a database.
 
 ### Seed synthetic attendance (PAXMiner test schemas)
 

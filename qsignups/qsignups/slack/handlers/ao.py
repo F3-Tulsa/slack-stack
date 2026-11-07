@@ -1,10 +1,9 @@
 import logging
-import os
-import re
 from typing import Optional
 
 from sqlalchemy import text
 
+from data import database_schema, site_q_user_id
 from database import DbManager, get_engine
 from database.orm import Weekly, Master, AO
 from utilities import safe_get
@@ -12,58 +11,37 @@ from . import UpdateResponse
 
 _LOG = logging.getLogger(__name__)
 
-# Regional PAXminer schema names: letters, digits, underscore only (defense in depth for SQL identifiers).
-_SCHEMA_TOKEN = re.compile(r"^[A-Za-z0-9_]+$")
 
-
-def _resolved_paxminer_regional_schema() -> Optional[str]:
-    raw = (os.environ.get("PM_REGIONAL_SCHEMA") or "").strip()
-    if not raw:
-        return None
-    first = raw.split(",")[0].strip()
-    if not first or not _SCHEMA_TOKEN.match(first):
-        _LOG.warning("PM_REGIONAL_SCHEMA invalid or empty after parse; got %r", raw)
-        return None
-    return first
+def _schema_ready() -> bool:
+    try:
+        database_schema()
+    except RuntimeError:
+        return False
+    return True
 
 
 def get_site_q(ao_channel_id: Optional[str]) -> Optional[str]:
-    """Read site_q_user_id from regional PAXminer `aos` table (Slack channel_id)."""
-    schema = _resolved_paxminer_regional_schema()
-    if not schema or not ao_channel_id:
+    """Read site_q_user_id from aos in DATABASE_SCHEMA."""
+    if not ao_channel_id or not _schema_ready():
         return None
-    sql = text(
-        f"SELECT site_q_user_id FROM `{schema}`.aos WHERE channel_id = :ch LIMIT 1"
-    )
     try:
         with get_engine().connect() as conn:
-            row = conn.execute(sql, {"ch": ao_channel_id}).first()
-        if row is None:
-            return None
-        val = row[0]
-        return val if val else None
+            return site_q_user_id(conn, ao_channel_id)
     except Exception:
-        _LOG.exception(
-            "get_site_q failed schema=%s channel_id=%s", schema, ao_channel_id
-        )
+        _LOG.exception("get_site_q failed channel_id=%s", ao_channel_id)
         return None
 
 
 def set_site_q(ao_channel_id: Optional[str], site_q_user_id: Optional[str]) -> None:
-    """Write site_q_user_id on regional PAXminer `aos`; no-op if schema unset or channel missing."""
-    schema = _resolved_paxminer_regional_schema()
-    if not schema or not ao_channel_id:
+    """Write site_q_user_id on aos; no-op if DATABASE_SCHEMA is unset or channel missing."""
+    if not ao_channel_id or not _schema_ready():
         return
-    sql = text(
-        f"UPDATE `{schema}`.aos SET site_q_user_id = :uid WHERE channel_id = :ch"
-    )
+    sql = text("UPDATE aos SET site_q_user_id = :uid WHERE channel_id = :ch")
     try:
         with get_engine().begin() as conn:
             conn.execute(sql, {"uid": site_q_user_id, "ch": ao_channel_id})
     except Exception:
-        _LOG.exception(
-            "set_site_q failed schema=%s channel_id=%s", schema, ao_channel_id
-        )
+        _LOG.exception("set_site_q failed channel_id=%s", ao_channel_id)
         raise
 
 

@@ -3,31 +3,22 @@
 from __future__ import annotations
 
 import logging
-import os
-import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, List, Optional
 
-from sqlalchemy import text
-
 from database import get_engine
+from data import aoq_channel_ids, database_schema, user_has_q_history
 
 _LOG = logging.getLogger(__name__)
 
-_SCHEMA_TOKEN = re.compile(r"^[A-Za-z0-9_]+$")
-
 
 def resolved_paxminer_regional_schema() -> Optional[str]:
-    """First valid schema from PM_REGIONAL_SCHEMA (comma-separated allowed)."""
-    raw = (os.environ.get("PM_REGIONAL_SCHEMA") or "").strip()
-    if not raw:
+    """The connected region schema. Missing or invalid DATABASE_SCHEMA skips AOQ/Q."""
+    try:
+        return database_schema()
+    except RuntimeError:
         return None
-    first = raw.split(",")[0].strip()
-    if not first or not _SCHEMA_TOKEN.match(first):
-        _LOG.warning("PM_REGIONAL_SCHEMA invalid or empty after parse; got %r", raw)
-        return None
-    return first
 
 
 class PermissionLevel(Enum):
@@ -52,32 +43,24 @@ def slack_is_admin_or_owner(user_info_dict: Any) -> bool:
 
 
 def get_aoq_channels(user_id: str, schema: str) -> List[str]:
-    """Slack channel_ids where this user is site_q_user_id in regional PAXminer aos."""
-    if not schema or not _SCHEMA_TOKEN.match(schema):
-        return []
-    sql = text(f"SELECT channel_id FROM `{schema}`.aos WHERE site_q_user_id = :uid")
+    """Slack channel_ids where this user is site_q_user_id. schema is accepted and ignored."""
+    del schema
     try:
         with get_engine().connect() as conn:
-            rows = conn.execute(sql, {"uid": user_id}).fetchall()
-        return [r[0] for r in rows if r and r[0]]
+            return aoq_channel_ids(conn, user_id)
     except Exception:
-        _LOG.exception("get_aoq_channels failed schema=%s user_id=%s", schema, user_id)
+        _LOG.exception("get_aoq_channels failed user_id=%s", user_id)
         return []
 
 
 def has_q_history(user_id: str, schema: str) -> bool:
-    """True if user appears as primary Q on any beatdown in regional schema."""
-    if not schema or not _SCHEMA_TOKEN.match(schema):
-        return False
-    sql = text(
-        f"SELECT 1 FROM `{schema}`.beatdowns WHERE q_user_id = :uid LIMIT 1"
-    )
+    """True if user appears as primary Q on any beatdown. schema is accepted and ignored."""
+    del schema
     try:
         with get_engine().connect() as conn:
-            row = conn.execute(sql, {"uid": user_id}).first()
-        return row is not None
+            return user_has_q_history(conn, user_id)
     except Exception:
-        _LOG.exception("has_q_history failed schema=%s user_id=%s", schema, user_id)
+        _LOG.exception("has_q_history failed user_id=%s", user_id)
         return False
 
 

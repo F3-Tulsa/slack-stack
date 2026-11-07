@@ -198,7 +198,7 @@ def _load_definition(conn, pm_schema: str, definition_id: int) -> dict | None:
 def _load_region(conn, pm_schema: str, schema_name: str) -> dict | None:
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT * FROM `{pm_schema}`.`regions` WHERE schema_name=%s LIMIT 1",
+            f"SELECT * FROM `{pm_schema}`.`region_config` WHERE schema_name=%s LIMIT 1",
             (schema_name,),
         )
         return cur.fetchone()
@@ -890,7 +890,7 @@ def _dispatch_report(
 
             region = dict(region)
             if channel_ids:
-                region["achievement_channel"] = channel_ids[0]
+                region["region_achievements_channel"] = channel_ids[0]
             result = run_leaderboard_for_region(
                 registry_conn,
                 pm_schema,
@@ -925,7 +925,7 @@ def _dispatch_report(
 
             region = dict(region)
             if channel_ids:
-                region["achievement_channel"] = channel_ids[0]
+                region["region_achievements_channel"] = channel_ids[0]
             result = run_almost_there_for_region(
                 registry_conn,
                 pm_schema,
@@ -1078,7 +1078,7 @@ def list_due_schedules(conn, pm_schema: str) -> list[dict]:
             f"""
             SELECT s.*, r.timezone AS region_timezone
             FROM `{pm_schema}`.`region_schedules` s
-            JOIN `{pm_schema}`.`regions` r ON r.schema_name = s.schema_name
+            JOIN `{pm_schema}`.`region_config` r ON r.schema_name = s.schema_name
             JOIN `{pm_schema}`.`region_report_definitions` d
               ON d.id = s.report_definition_id
             WHERE s.enabled = 1 AND r.active = 1 AND COALESCE(d.enabled, 1) = 1

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from datetime import date
 from pathlib import Path
@@ -40,24 +39,16 @@ _CODE_RE = re.compile(r"^[a-z0-9_]+$")
 
 
 def _registry_db() -> str:
-    return (
-        os.environ.get("PAXMINER_REGISTRY_DATABASE")
-        or os.environ.get("PAXMINER_SCHEMA")
-        or "paxminer"
-    ).strip()
+    from region_data import database_schema
+
+    return database_schema()
 
 
 def _region_for_team(cur, pm_schema: str, team_id: str) -> dict | None:
-    sb_schema = os.environ.get("SLACKBLAST_SCHEMA") or f"slackblast_{os.environ.get('STAGE', 'test')}"
-    cur.execute(
-        f"""
-        SELECT r.* FROM `{pm_schema}`.`regions` r
-        JOIN `{sb_schema}`.regions sb ON sb.paxminer_schema = r.schema_name
-        WHERE sb.team_id = %s LIMIT 1
-        """,
-        (team_id,),
-    )
-    return cur.fetchone()
+    del pm_schema
+    from region_data import region_for_team
+
+    return region_for_team(cur, team_id)
 
 
 def _metadata(team_id: str, regional_schema: str, achievement_id: int | None = None, **extra) -> str:
@@ -910,22 +901,12 @@ def _load_achievement(cur, schema: str, achievement_id: int) -> dict | None:
 
 
 def _load_activity_options(cur, schema: str, team_id: str | None = None) -> list[str]:
-    """Event Type options from slackblast.regions.custom_fields. No builtins, no beatdown."""
+    """Event Type options from region_config.custom_fields. No builtins, no beatdown."""
     from achievements.activity import event_type_options_from_custom_fields
+    from region_data import custom_fields_row
 
-    sb_schema = os.environ.get("SLACKBLAST_SCHEMA") or f"slackblast_{os.environ.get('STAGE', 'test')}"
     try:
-        if team_id:
-            cur.execute(
-                f"SELECT custom_fields FROM `{sb_schema}`.`regions` WHERE team_id=%s LIMIT 1",
-                (team_id,),
-            )
-        else:
-            cur.execute(
-                f"SELECT custom_fields FROM `{sb_schema}`.`regions` WHERE paxminer_schema=%s LIMIT 1",
-                (schema,),
-            )
-        row = cur.fetchone() or {}
+        row = custom_fields_row(cur, team_id=team_id, schema_name=schema)
     except Exception:
         return []
     return event_type_options_from_custom_fields(row.get("custom_fields"))

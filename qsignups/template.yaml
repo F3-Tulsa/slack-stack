@@ -41,9 +41,8 @@ Parameters:
     Default: "123"
     NoEcho: true
   DatabaseSchema:
-    Description: RDS / TiDB database (schema) name
+    Description: Region schema. Deploy sets this to the region name plus the stage.
     Type: String
-    Default: "qsignups"
   DatabasePort:
     Description: MySQL / TiDB port (3306 MySQL, 4000 TiDB)
     Type: String
@@ -128,12 +127,6 @@ Parameters:
     AllowedValues:
       - "true"
       - "false"
-  PmRegionalSchema:
-    Description: >
-      PAXminer regional DB schema containing aos.site_q_user_id (e.g. f3ttown_prod).
-      Same value as PM_REGIONAL_SCHEMA (first schema if comma-separated). Leave empty to skip Site Q sync.
-    Type: String
-    Default: ""
   # PasswordEncryptKey:
   #   Description: Hash encrypt key for decrypting email passwords
   #   Type: String
@@ -221,7 +214,7 @@ Resources:
           DATABASE_HOST: !Ref DatabaseHost
           ADMIN_DATABASE_USER: !Ref DatabaseUser
           ADMIN_DATABASE_PASSWORD: !Ref DatabasePassword
-          ADMIN_DATABASE_SCHEMA: !Ref DatabaseSchema
+          DATABASE_SCHEMA: !Ref DatabaseSchema
           DATABASE_PORT: !Ref DatabasePort
           DATABASE_TLS_ENABLED: !Ref DatabaseTlsEnabled
           DB_ENCRYPTION_KEY: !Ref DbEncryptionKey
@@ -239,7 +232,6 @@ Resources:
           ENV_SLACK_CLIENT_ID: !Ref SlackClientId
           CREATE_OAUTH_TABLES: !Ref CreateOauthTables
           IMAGE_S3_BUCKET: !Ref ImageBucketName
-          PM_REGIONAL_SCHEMA: !Ref PmRegionalSchema
           # STRAVA_CLIENT_ID: !Ref StravaClientID
           # STRAVA_CLIENT_SECRET: !Ref StravaClientSecret
 

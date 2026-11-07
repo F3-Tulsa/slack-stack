@@ -1772,9 +1772,29 @@ if os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
     _warmup(logger)
 
 
+def _smoke(log: logging.Logger) -> dict:
+    """Prove this process can read the region schema. Return no row data."""
+    try:
+        from database import get_engine
+        from sqlalchemy import text
+
+        engine = get_engine()
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+            row = conn.execute(text("SELECT 1 FROM qsignups_regions LIMIT 1")).first()
+        if row is None:
+            return {"statusCode": 500, "body": "qsignups_regions is empty"}
+    except Exception:
+        log.exception("Smoke: region schema check failed")
+        return {"statusCode": 500, "body": "region schema check failed"}
+    return {"statusCode": 200, "body": "ok"}
+
+
 def handler(event, context):
     request_id = getattr(context, "aws_request_id", None) if context else None
     try:
+        if isinstance(event, dict) and event.get("source") == "smoke":
+            return _smoke(logger)
         if isinstance(event, str):
             try:
                 event = json.loads(event)
