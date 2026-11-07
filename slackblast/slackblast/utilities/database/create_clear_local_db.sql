@@ -1,7 +1,5 @@
--- Local dev bootstrap SQL. Names must match your env:
---   PAXMINER_SCHEMA (default paxminer)
---   ADMIN_DATABASE_SCHEMA (default slackblast)
---   LOCAL_DEV_REGION_SCHEMA (default f3devregion)
+-- Local dev bootstrap SQL. The app reads DATABASE_SCHEMA, one region schema.
+-- This file still creates the older separate schemas for a manual layout.
 -- Create or replace databases
 CREATE DATABASE IF NOT EXISTS paxminer;
 CREATE DATABASE IF NOT EXISTS slackblast;

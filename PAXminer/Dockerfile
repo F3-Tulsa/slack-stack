@@ -7,10 +7,10 @@ RUN pip install --no-cache-dir -r requirements-lambda.txt
 
 COPY PAXminer/handlers.py ./
 COPY PAXminer/paxminer_db.py ./
+COPY PAXminer/region_data.py ./
 COPY PAXminer/slack_util.py ./
 COPY PAXminer/slack_http.py ./
 COPY PAXminer/slack_blocks.py ./
-COPY PAXminer/config_paxminer.py ./
 COPY PAXminer/scheduling.py ./
 COPY PAXminer/report_defaults.json ./
 COPY PAXminer/schedule_schema.py ./

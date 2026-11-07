@@ -58,7 +58,7 @@ You'll need the Signing Secret and a Bot Token.  Get the Signing Secret from the
 and the Bot Token from the OAuth section.
 
 4.  Create the database tables in your MySQL / TiDB database.
-4a. Create a new database (schema). Deployed names often follow `{app}_{stage}` (e.g. `qsignups_test`, `qsignups_prod`); set `ADMIN_DATABASE_SCHEMA` / your connection to match.
+4a. Create a new database (schema). Deployed names are `{F3_REGION_NAME}_{stage}` (e.g. `f3ttown_test`); set `DATABASE_SCHEMA` to that name.
 4b. In the TiDB SQL console (or mysql client), run `USE your_schema;` first, or edit the `USE qsignups_test;` line at the top of each SQL file to match your schema.
 4c. Create the base tables from the scripts under `qsignups/db/tables/` (run each file in order as needed for a fresh install).
 4d. In order, apply incremental migrations from `qsignups/db/scripts/` (001, 002, …). Each script starts with `USE qsignups_test;` — change that line if your schema name differs.

@@ -38,7 +38,9 @@ LOG = logging.getLogger(__name__)
 
 REHEARSAL_STAGE = "rehearsal"
 SOURCE_STAGE_ALLOWED = "prod"
-COPY_BASES = ("paxminer", "weaselbot", "slackblast", "f3ttown", "f3scissortail")
+# One region. weaselbot_* was dropped. Scissortail is not part of this rehearsal.
+# qsignups is included so the replica has the schedule tables and Bolt rows.
+COPY_BASES = ("paxminer", "slackblast", "qsignups", "f3ttown")
 DUMMY_TOKEN = "xoxb-rehearsal-not-a-real-token"
 
 # Long enough for server-side INSERT ... SELECT of large regional tables.
@@ -218,7 +220,13 @@ def rewrite_registry_pointers(cur, mapping: dict[str, str], target_stage: str) -
     pm = f"paxminer_{target_stage}"
     wb = f"weaselbot_{target_stage}"
     sb = f"slackblast_{target_stage}"
-    updates = {"paxminer.schema_name": 0, "weaselbot.paxminer_schema": 0, "slackblast.paxminer_schema": 0}
+    updates = {
+        "paxminer.schema_name": 0,
+        "paxminer.report_schema_name": 0,
+        "paxminer.schedule_schema_name": 0,
+        "weaselbot.paxminer_schema": 0,
+        "slackblast.paxminer_schema": 0,
+    }
     deactivated = 0
 
     def _rewrite(schema: str, table: str, column: str, key: str) -> None:
@@ -235,6 +243,8 @@ def rewrite_registry_pointers(cur, mapping: dict[str, str], target_stage: str) -
             updates[key] += int(cur.rowcount or 0)
 
     _rewrite(pm, "regions", "schema_name", "paxminer.schema_name")
+    _rewrite(pm, "region_report_definitions", "schema_name", "paxminer.report_schema_name")
+    _rewrite(pm, "region_schedules", "schema_name", "paxminer.schedule_schema_name")
     _rewrite(wb, "regions", "paxminer_schema", "weaselbot.paxminer_schema")
     _rewrite(sb, "regions", "paxminer_schema", "slackblast.paxminer_schema")
 
@@ -244,17 +254,19 @@ def rewrite_registry_pointers(cur, mapping: dict[str, str], target_stage: str) -
             name = row.get("schema_name")
             if not name:
                 continue
-            if not _schema_exists(cur, name):
+            copied_here = str(name).endswith(f"_{target_stage}") and _schema_exists(cur, name)
+            if not copied_here:
                 cur.execute(
                     f"UPDATE `{pm}`.`regions` SET active=0 WHERE region=%s",
                     (row["region"],),
                 )
                 deactivated += int(cur.rowcount or 0)
                 LOG.warning(
-                    "Set %s.regions.active=0 for region=%s (schema_name=%s has no copy)",
+                    "Set %s.regions.active=0 for region=%s (schema_name=%s is not a %s copy)",
                     pm,
                     row.get("region"),
                     name,
+                    target_stage,
                 )
     return {**updates, "deactivated_missing_copy": deactivated}
 
@@ -269,8 +281,13 @@ def neutralize_tokens(cur, target_stage: str) -> dict:
     counts = {}
     targets = [
         (f"paxminer_{target_stage}", "regions", "slack_token"),
-        (f"weaselbot_{target_stage}", "regions", "slack_token"),
         (f"slackblast_{target_stage}", "regions", "bot_token"),
+        (f"slackblast_{target_stage}", "slack_bots", "bot_token"),
+        (f"slackblast_{target_stage}", "slack_installations", "bot_token"),
+        (f"qsignups_{target_stage}", "slack_bots", "bot_token"),
+        (f"qsignups_{target_stage}", "slack_installations", "bot_token"),
+        (f"qsignups_{target_stage}", "qsignups_regions", "bot_token"),
+        (f"qsignups_{target_stage}", "slack_installations", "user_token"),
     ]
     for schema, table, column in targets:
         key = f"{schema}.{table}.{column}"
@@ -289,6 +306,84 @@ def neutralize_tokens(cur, target_stage: str) -> dict:
         counts[key] = int(cur.rowcount or 0)
         LOG.info("Neutralized %s non-empty token(s) on %s", counts[key], key)
     return counts
+
+
+_IDENT = re.compile(r"^[A-Za-z0-9_]+$")
+_TEXT_TYPES = ("char", "varchar", "tinytext", "text", "mediumtext", "longtext")
+
+
+def text_unique_indexes(cur, schema: str) -> list[tuple[str, str, list[tuple[str, str]]]]:
+    """Unique indexes that include a text column, columns in key order.
+
+    A column that only repeats inside a composite key is not a collision.
+    """
+    cur.execute(
+        """
+        SELECT s.TABLE_NAME AS table_name,
+               s.INDEX_NAME AS index_name,
+               s.SEQ_IN_INDEX AS seq,
+               s.COLUMN_NAME AS column_name,
+               c.DATA_TYPE AS data_type
+        FROM information_schema.STATISTICS s
+        JOIN information_schema.COLUMNS c
+          ON c.TABLE_SCHEMA = s.TABLE_SCHEMA
+         AND c.TABLE_NAME = s.TABLE_NAME
+         AND c.COLUMN_NAME = s.COLUMN_NAME
+        WHERE s.TABLE_SCHEMA = %s
+          AND s.NON_UNIQUE = 0
+        ORDER BY s.TABLE_NAME, s.INDEX_NAME, s.SEQ_IN_INDEX
+        """,
+        (schema,),
+    )
+    grouped: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    order: list[tuple[str, str]] = []
+    for row in cur.fetchall():
+        key = (row["table_name"], row["index_name"])
+        if key not in grouped:
+            grouped[key] = []
+            order.append(key)
+        grouped[key].append((row["column_name"], row["data_type"]))
+    chosen = []
+    for table, index in order:
+        cols = grouped[(table, index)]
+        if any(dtype in _TEXT_TYPES for _, dtype in cols):
+            chosen.append((table, index, cols))
+    return chosen
+
+
+def collation_collisions(cur, schema: str) -> list[str]:
+    """Unique indexes whose full key is not unique under utf8mb4_unicode_ci.
+
+    Text columns are converted to utf8mb4 first. Some QSignups keys are still
+    charset utf8, and ``COLLATE utf8mb4_unicode_ci`` is rejected on those.
+    NULL key parts are ignored: a unique index allows more than one NULL.
+    """
+    problems = []
+    if not _IDENT.fullmatch(schema):
+        return problems
+    for table, index, cols in text_unique_indexes(cur, schema):
+        if not _IDENT.fullmatch(table) or not _IDENT.fullmatch(index):
+            problems.append(f"{schema} skipped unreadable index {table}.{index}")
+            continue
+        if any(not _IDENT.fullmatch(name) for name, _dtype in cols):
+            problems.append(f"{schema} skipped unreadable index {table}.{index}")
+            continue
+        pieces = []
+        guards = []
+        for name, dtype in cols:
+            if dtype in _TEXT_TYPES:
+                pieces.append(f"CONVERT(`{name}` USING utf8mb4) COLLATE utf8mb4_unicode_ci")
+            else:
+                pieces.append(f"`{name}`")
+            guards.append(f"COUNT(`{name}`) = COUNT(*)")
+        cur.execute(
+            f"SELECT 1 AS hit FROM `{schema}`.`{table}` "
+            f"GROUP BY {', '.join(pieces)} "
+            f"HAVING COUNT(*) > 1 AND {' AND '.join(guards)} LIMIT 1"
+        )
+        if cur.fetchone():
+            problems.append(f"{schema}.{table}.{index} collides under utf8mb4_unicode_ci")
+    return problems
 
 
 def report_preflight(cur, source_stage: str, target_stage: str) -> int:
@@ -332,6 +427,8 @@ def report_preflight(cur, source_stage: str, target_stage: str) -> int:
             problems.append(f"source schema {src} does not exist")
         if dst_sz is None:
             problems.append(f"target schema {dst} does not exist (pre-create empty databases as admin)")
+        if src_sz is not None:
+            problems.extend(collation_collisions(cur, src))
     if problems:
         print("PREFLIGHT FAILED:", flush=True)
         for p in problems:

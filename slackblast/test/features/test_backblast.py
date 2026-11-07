@@ -229,6 +229,9 @@ def test_handle_backblast_post_uses_empty_icon_url_when_q_url_missing(
         patch("features.backblast.get_user_names", side_effect=_get_user_names),
         patch("features.backblast.claim_interaction", return_value=True),
         patch("features.backblast.check_for_duplicate", return_value=False),
+        patch("features.backblast.DbManager.find_records", return_value=[]),
+        patch("features.backblast.ensure_users_in_db", return_value=None),
+        patch("features.backblast.DbManager.transaction", _transaction_for(RecordingSession())),
     ):
         backblast.handle_backblast_post(
             body=body,
@@ -238,8 +241,8 @@ def test_handle_backblast_post_uses_empty_icon_url_when_q_url_missing(
             region_record=region_record,
         )
 
-    assert client.chat_postMessage.called
-    assert client.chat_postMessage.call_args.kwargs["icon_url"] == ""
+    posted = [c.kwargs for c in client.chat_postMessage.call_args_list if "icon_url" in c.kwargs]
+    assert posted[0]["icon_url"] == ""
 
 
 def test_handle_backblast_post_app_q_uses_submitter_for_db_q_user_id():

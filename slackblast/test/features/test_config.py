@@ -35,12 +35,12 @@ def test_attach_paxminer_settings_button_when_linked():
     assert "T1" in button.url
 
 
-def test_attach_paxminer_settings_button_skipped_without_schema():
+def test_attach_paxminer_settings_button_without_second_schema():
     form = copy.deepcopy(forms.CONFIG_FORM)
-    region = SimpleNamespace(paxminer_schema=None)
+    region = SimpleNamespace()
     with patch.dict(os.environ, {"PM_SLACK_APP_ID": "A123"}):
-        assert attach_paxminer_settings_button(form, region, team_id="T1") is False
-    assert _context_mentions_paxminer(form)
+        assert attach_paxminer_settings_button(form, region, team_id="T1") is True
+    assert not _context_mentions_paxminer(form)
 
 
 def test_attach_paxminer_settings_button_skipped_without_app_id():

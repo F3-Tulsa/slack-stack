@@ -10,7 +10,7 @@ from slack_sdk.web import WebClient
 from sqlalchemy.exc import IntegrityError
 
 from utilities import constants, sendmail
-from utilities.database import DbManager
+from utilities.database import DbManager, paxminer_schema_name
 from utilities.database.orm import Attendance, Backblast, PaxminerUser, Region
 from utilities.paxminer_achievements_webhook import trigger_achievement_webhook
 from utilities.field_encryption import decrypt_field
@@ -440,9 +440,7 @@ def handle_backblast_post(body: dict, client: WebClient, logger: Logger, context
         except Exception as e:
             logger.error(f"Error uploading file: {e}")
 
-    user_records = None
-    if region_record.paxminer_schema:
-        user_records = DbManager.find_records(PaxminerUser, filters=[True], schema=region_record.paxminer_schema)
+    user_records = DbManager.find_records(PaxminerUser, filters=[True], schema=paxminer_schema_name())
 
     q_is_app_user = any(
         getattr(user_record, "user_id", None) == the_q and bool(getattr(user_record, "app", 0))
@@ -635,24 +633,15 @@ def handle_backblast_post(body: dict, client: WebClient, logger: Logger, context
 
     try:
         if create_or_edit == "create":
-            if region_record.paxminer_schema is None:
-                text = (post_msg + "\n" + moleskin_text)[:1500]
-                res = client.chat_postMessage(
-                    channel=chan,
-                    text=text,
-                    username=f"{q_name} (via Slackblast)",
-                    icon_url=q_url,
-                )
-            else:
-                text = (f"{moleskin_text_w_names}\n\nUse the 'New Backblast' button to create a new backblast")[:1500]
-                res = client.chat_postMessage(
-                    channel=chan,
-                    text=text,
-                    username=f"{q_name} (via Slackblast)",
-                    icon_url=q_url,
-                    blocks=blocks,
-                    metadata={"event_type": "backblast", "event_payload": backblast_data},
-                )
+            text = (f"{moleskin_text_w_names}\n\nUse the 'New Backblast' button to create a new backblast")[:1500]
+            res = client.chat_postMessage(
+                channel=chan,
+                text=text,
+                username=f"{q_name} (via Slackblast)",
+                icon_url=q_url,
+                blocks=blocks,
+                metadata={"event_type": "backblast", "event_payload": backblast_data},
+            )
 
         elif create_or_edit == "edit":
             text = (f"{moleskin_text_w_names}\n\nUse the 'New Backblast' button to create a new backblast")[:1500]
@@ -724,16 +713,16 @@ COUNT: {count}
             logger.debug("\nEmail Sent! \n{}".format(email_msg))
             logger.info(json.dumps({"event_type": "failed_email", "team_name": region_record.workspace_name}))
 
-    if create_or_edit == "edit" and message_ts and region_record.paxminer_schema:
+    if create_or_edit == "edit" and message_ts:
         prior_attendance = DbManager.find_records(
             cls=Attendance,
-            schema=region_record.paxminer_schema,
+            schema=paxminer_schema_name(),
             filters=[Attendance.timestamp == message_ts],
         )
         prior_pax_ids = {a.user_id for a in prior_attendance}
         prior_rows = DbManager.find_records(
             cls=Backblast,
-            schema=region_record.paxminer_schema,
+            schema=paxminer_schema_name(),
             filters=[Backblast.timestamp == message_ts],
         )
         prior_backblast = prior_rows[0] if prior_rows else None
@@ -749,19 +738,17 @@ COUNT: {count}
             exc_info=True,
         )
 
-    if region_record.paxminer_schema:
-        all_user_ids = list({u for u in [the_q, *(the_coq or []), *pax] if u})
-        ensure_users_in_db(all_user_ids, client, logger, region_record.paxminer_schema)
+    all_user_ids = list({u for u in [the_q, *(the_coq or []), *pax] if u})
+    ensure_users_in_db(all_user_ids, client, logger, paxminer_schema_name())
 
-    if region_record.paxminer_schema is not None:
-        logger.info(
-            "DB write starting paxminer_schema=%s team_id=%s create_or_edit=%s ts=%s",
-            region_record.paxminer_schema,
-            region_record.team_id,
-            create_or_edit,
-            message_ts or res.get("ts"),
-        )
-        backblast_parsed = f"""Backblast! {title}
+    logger.info(
+        "DB write starting schema=%s team_id=%s create_or_edit=%s ts=%s",
+        paxminer_schema_name(),
+        region_record.team_id,
+        create_or_edit,
+        message_ts or res.get("ts"),
+    )
+    backblast_parsed = f"""Backblast! {title}
 Date: {the_date}
 AO: {ao_name}
 Q: {q_name} {the_coqs_names}
@@ -770,135 +757,135 @@ FNGs: {fngs_formatted}
 COUNT: {count}
 {moleskin_text_w_names}
 """
-        backblast_row = Backblast(
+    backblast_row = Backblast(
+        timestamp=message_ts or res["ts"],
+        ts_edited=safe_get(res, "message", "edited", "ts"),
+        ao_id=ao or chan,
+        bd_date=the_date,
+        q_user_id=db_q_user_id,
+        coq_user_id=the_coq[0] if the_coq else None,
+        pax_count=count,
+        backblast=f"{post_msg}\n{moleskin_text}".replace("*", ""),
+        backblast_parsed=backblast_parsed,
+        fngs=fngs_formatted if fngs else "None listed",
+        fng_count=fng_count,
+        json=custom_fields,
+    )
+    attendance_records = [
+        Attendance(
             timestamp=message_ts or res["ts"],
             ts_edited=safe_get(res, "message", "edited", "ts"),
+            user_id=pax_id,
             ao_id=ao or chan,
-            bd_date=the_date,
+            date=the_date,
             q_user_id=db_q_user_id,
-            coq_user_id=the_coq[0] if the_coq else None,
-            pax_count=count,
-            backblast=f"{post_msg}\n{moleskin_text}".replace("*", ""),
-            backblast_parsed=backblast_parsed,
-            fngs=fngs_formatted if fngs else "None listed",
-            fng_count=fng_count,
-            json=custom_fields,
         )
-        attendance_records = [
-            Attendance(
-                timestamp=message_ts or res["ts"],
-                ts_edited=safe_get(res, "message", "edited", "ts"),
-                user_id=pax_id,
-                ao_id=ao or chan,
-                date=the_date,
-                q_user_id=db_q_user_id,
+        for pax_id in list(set(pax) | set(the_coq or []) | {the_q})
+    ]
+    db_saved = False
+    try:
+        with DbManager.transaction(schema=paxminer_schema_name()) as session:
+            persist_backblast(
+                session,
+                backblast=backblast_row,
+                attendance_records=attendance_records,
+                replace_timestamp=message_ts if create_or_edit == "edit" else None,
             )
-            for pax_id in list(set(pax) | set(the_coq or []) | {the_q})
-        ]
-        db_saved = False
-        try:
-            with DbManager.transaction(schema=region_record.paxminer_schema) as session:
-                persist_backblast(
-                    session,
-                    backblast=backblast_row,
-                    attendance_records=attendance_records,
-                    replace_timestamp=message_ts if create_or_edit == "edit" else None,
-                )
-            db_saved = True
-            logger.info(
-                "beatdowns+attendance committed ao_id=%s bd_date=%s q_user_id=%s timestamp=%s attendance=%s",
-                ao or chan,
-                the_date,
-                db_q_user_id,
-                message_ts or res.get("ts"),
-                len(attendance_records),
+        db_saved = True
+        logger.info(
+            "beatdowns+attendance committed ao_id=%s bd_date=%s q_user_id=%s timestamp=%s attendance=%s",
+            ao or chan,
+            the_date,
+            db_q_user_id,
+            message_ts or res.get("ts"),
+            len(attendance_records),
+        )
+        logger.info(
+            json.dumps(
+                {
+                    "event_type": "successful_db_insert",
+                    "team_name": region_record.workspace_name,
+                }
             )
-            logger.info(
-                json.dumps(
-                    {
-                        "event_type": "successful_db_insert",
-                        "team_name": region_record.workspace_name,
-                    }
-                )
-            )
-        except IntegrityError as e:
-            logger.error("Duplicate backblast: %s", e, exc_info=True)
-            client.chat_postMessage(
-                channel=context["user_id"],
-                text=_backblast_db_failure_text(create_or_edit, duplicate=True),
-            )
-            logger.info(json.dumps({"event_type": "failed_db_insert", "team_name": region_record.workspace_name}))
-        except Exception as e:
-            logger.error("Error saving backblast to database: %s", e, exc_info=True)
-            client.chat_postMessage(
-                channel=context["user_id"],
-                text=_backblast_db_failure_text(create_or_edit, duplicate=False, error=e),
-            )
-            logger.info(json.dumps({"event_type": "failed_db_insert", "team_name": region_record.workspace_name}))
+        )
+    except IntegrityError as e:
+        logger.error("Duplicate backblast: %s", e, exc_info=True)
+        client.chat_postMessage(
+            channel=context["user_id"],
+            text=_backblast_db_failure_text(create_or_edit, duplicate=True),
+        )
+        logger.info(json.dumps({"event_type": "failed_db_insert", "team_name": region_record.workspace_name}))
+    except Exception as e:
+        logger.error("Error saving backblast to database: %s", e, exc_info=True)
+        client.chat_postMessage(
+            channel=context["user_id"],
+            text=_backblast_db_failure_text(create_or_edit, duplicate=False, error=e),
+        )
+        logger.info(json.dumps({"event_type": "failed_db_insert", "team_name": region_record.workspace_name}))
 
-        if db_saved:
-            current_pax_ids = {u for u in [the_q, *(the_coq or []), *pax] if u}
-            webhook_pax = current_pax_ids | prior_pax_ids
-            trigger_achievement_webhook(
-                region_record=region_record,
-                pax_user_ids=webhook_pax,
-                bd_date=str(the_date),
-                ao_channel_id=ao or chan,
-                post_to_ao=bool(getattr(region_record, "post_achievements_to_ao", 0)),
-                logger=logger,
-            )
-            try:
-                paxminer_log_channel = resolve_paxminer_log_channel(region_record, logger, client)
-                if paxminer_log_channel:
-                    summary_lines = None
-                    if create_or_edit == "edit" and prior_backblast is not None:
-                        name_ids = {
-                            u
-                            for u in [
-                                the_q,
-                                *(the_coq or []),
-                                *pax,
-                                getattr(prior_backblast, "q_user_id", None),
-                                getattr(prior_backblast, "coq_user_id", None),
-                                *prior_pax_ids,
-                            ]
-                            if u
-                        }
-                        id_list = list(name_ids)
-                        name_list = get_user_names(
-                            id_list, logger, client, return_urls=False, user_records=user_records
-                        ) or []
-                        names = {uid: name for uid, name in zip(id_list, name_list) if uid}
-                        stored_body = f"{post_msg}\n{moleskin_text}".replace("*", "")
-                        prior_body = getattr(prior_backblast, "backblast", None) or ""
-                        summary_lines = build_backblast_edit_summary(
-                            prior=prior_backblast,
-                            q_user_id=db_q_user_id,
-                            coq_user_id=the_coq[0] if the_coq else None,
-                            current_pax_ids=current_pax_ids,
-                            prior_pax_ids=prior_pax_ids,
-                            pax_count=count,
-                            fng_count=fng_count,
-                            bd_date=the_date,
-                            ao_id=ao or chan,
-                            body_changed=(prior_body or "").replace("*", "").strip()
-                            != (stored_body or "").strip(),
-                            names=names,
-                        )
-                    client.chat_postMessage(
-                        channel=paxminer_log_channel,
-                        text=format_backblast_paxminer_log(
-                            edited=create_or_edit == "edit",
-                            ao_id=ao or chan,
-                            date_label=backblast_date_label(the_date),
-                            permalink=(res_link or {}).get("permalink"),
-                            summary_lines=summary_lines,
-                        ),
-                        unfurl_links=False,
-                        unfurl_media=False,
+    if db_saved:
+        current_pax_ids = {u for u in [the_q, *(the_coq or []), *pax] if u}
+        webhook_pax = current_pax_ids | prior_pax_ids
+        trigger_achievement_webhook(
+            region_record=region_record,
+            pax_user_ids=webhook_pax,
+            bd_date=str(the_date),
+            ao_channel_id=ao or chan,
+            post_to_ao=bool(getattr(region_record, "post_achievements_to_ao", 0)),
+            logger=logger,
+        )
+        try:
+            paxminer_log_channel = resolve_paxminer_log_channel(region_record, logger, client)
+            if paxminer_log_channel:
+                summary_lines = None
+                if create_or_edit == "edit" and prior_backblast is not None:
+                    name_ids = {
+                        u
+                        for u in [
+                            the_q,
+                            *(the_coq or []),
+                            *pax,
+                            getattr(prior_backblast, "q_user_id", None),
+                            getattr(prior_backblast, "coq_user_id", None),
+                            *prior_pax_ids,
+                        ]
+                        if u
+                    }
+                    id_list = list(name_ids)
+                    name_list = get_user_names(
+                        id_list, logger, client, return_urls=False, user_records=user_records
+                    ) or []
+                    names = {uid: name for uid, name in zip(id_list, name_list) if uid}
+                    stored_body = f"{post_msg}\n{moleskin_text}".replace("*", "")
+                    prior_body = getattr(prior_backblast, "backblast", None) or ""
+                    summary_lines = build_backblast_edit_summary(
+                        prior=prior_backblast,
+                        q_user_id=db_q_user_id,
+                        coq_user_id=the_coq[0] if the_coq else None,
+                        current_pax_ids=current_pax_ids,
+                        prior_pax_ids=prior_pax_ids,
+                        pax_count=count,
+                        fng_count=fng_count,
+                        bd_date=the_date,
+                        ao_id=ao or chan,
+                        body_changed=(prior_body or "").replace("*", "").strip()
+                        != (stored_body or "").strip(),
+                        names=names,
                     )
-            except Exception as e:
-                logger.error("Error posting to paxminer_logs channel: %s", e, exc_info=True)
+                client.chat_postMessage(
+                    channel=paxminer_log_channel,
+                    text=format_backblast_paxminer_log(
+                        edited=create_or_edit == "edit",
+                        ao_id=ao or chan,
+                        date_label=backblast_date_label(the_date),
+                        permalink=(res_link or {}).get("permalink"),
+                        summary_lines=summary_lines,
+                    ),
+                    unfurl_links=False,
+                    unfurl_media=False,
+                )
+        except Exception as e:
+            logger.error("Error posting to paxminer_logs channel: %s", e, exc_info=True)
 
     for file in file_send_list:
         try:

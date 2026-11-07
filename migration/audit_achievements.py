@@ -223,10 +223,14 @@ def snapshot_region(cur, schema: str) -> dict:
 def snapshot_tokens(cur, stage: str) -> list[dict]:
     """Storage state of every Slack token across registries. Never includes values."""
     reports: list[dict] = []
+    region_schema = f"f3ttown_{stage}"
     targets = [
         (_pm_schema(stage), "regions", "slack_token", "region"),
         (_wb_schema(stage), "regions", "slack_token", "team_id"),
         (_sb_schema(stage), "regions", "bot_token", "id"),
+        (region_schema, "region_config", "slack_token", "region"),
+        (region_schema, "region_config", "sb_bot_token", "region"),
+        (region_schema, "qsignups_regions", "bot_token", "team_id"),
     ]
     for schema, table, column, label_col in targets:
         if not _table_exists(cur, schema, table) or not _column_exists(cur, schema, table, column):
@@ -433,20 +437,9 @@ def compare_snapshots(before: dict, after: dict) -> list[dict]:
 def take_snapshot(cur, stage: str) -> dict:
     pm_schema = _pm_schema(stage)
     schemas: dict[str, dict] = {}
-    if _table_exists(cur, pm_schema, "regions"):
-        cur.execute(
-            f"SELECT schema_name FROM `{pm_schema}`.`regions` "
-            "WHERE schema_name IS NOT NULL"
-        )
-        names = [row["schema_name"] for row in cur.fetchall() if row.get("schema_name")]
-    else:
-        names = []
-    # Always include the expected regional schemas for this stage, even if
-    # the registry is empty (pre-copy) or a row is inactive.
-    expected = [f"f3ttown_{stage}", f"f3scissortail_{stage}"]
-    for name in expected:
-        if name not in names:
-            names.append(name)
+    # One region. Other registry rows, including an inactive Scissortail row
+    # that still names f3scissortail_prod, stay out of the snapshot.
+    names = [f"f3ttown_{stage}"]
     for name in names:
         schemas[name] = snapshot_region(cur, name)
     return {

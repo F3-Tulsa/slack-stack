@@ -156,6 +156,15 @@ jobs:
             exit 1
           fi
 
+      - name: Validate F3_REGION_NAME
+        env:
+          F3_REGION_NAME: ${{ vars.F3_REGION_NAME }}
+        run: |
+          if [[ ! "$F3_REGION_NAME" =~ ^[a-z0-9]+$ ]]; then
+            echo "::error::F3_REGION_NAME must match ^[a-z0-9]+$ (got '${F3_REGION_NAME}')"
+            exit 1
+          fi
+
       - name: Validate Slack OAuth client IDs
         env:
           SB_ID: ${{ vars.SB_SLACK_CLIENT_ID }}
@@ -250,7 +259,7 @@ jobs:
               DatabasePassword=${{ secrets.DATABASE_PASSWORD }} \
               DatabaseTlsEnabled=${{ vars.DATABASE_TLS_ENABLED }} \
               DbEncryptionKey=${{ secrets.DB_ENCRYPTION_KEY }} \
-              PaxminerSchema=${{ vars.PAXMINER_SCHEMA }}_${{ vars.STAGE }} \
+              DatabaseSchema=${{ vars.F3_REGION_NAME }}_${{ vars.STAGE }} \
               Stage=${{ vars.STAGE }} \
               F3RegionName=${{ vars.F3_REGION_NAME }} \
               PmSlackToken=${{ secrets.PM_SLACK_TOKEN }} \
@@ -297,8 +306,7 @@ jobs:
             "DatabaseUser=${{ secrets.DATABASE_USER }}"
             "DatabasePassword=${{ secrets.DATABASE_PASSWORD }}"
             "DatabaseTlsEnabled=${{ vars.DATABASE_TLS_ENABLED }}"
-            "DatabaseSchema=${{ vars.SLACKBLAST_SCHEMA }}_${{ vars.STAGE }}"
-            "PaxminerSchema=${{ vars.PAXMINER_SCHEMA }}_${{ vars.STAGE }}"
+            "DatabaseSchema=${{ vars.F3_REGION_NAME }}_${{ vars.STAGE }}"
             "PmAchievementsUrl=${ACH_URL}"
             "PmAchievementsWebhookSecret=${{ secrets.PM_ACHIEVEMENTS_WEBHOOK_SECRET }}"
             "PmSlackAppId=${{ vars.PM_SLACK_APP_ID }}"
@@ -358,8 +366,7 @@ jobs:
             "DatabaseUser=${{ secrets.DATABASE_USER }}"
             "DatabasePassword=${{ secrets.DATABASE_PASSWORD }}"
             "DatabaseTlsEnabled=${{ vars.DATABASE_TLS_ENABLED }}"
-            "DatabaseSchema=${{ vars.QSIGNUPS_SCHEMA }}_${{ vars.STAGE }}"
-            "PmRegionalSchema=${{ vars.PM_REGIONAL_SCHEMA }}"
+            "DatabaseSchema=${{ vars.F3_REGION_NAME }}_${{ vars.STAGE }}"
             "SlackToken=${{ secrets.QS_SLACK_TOKEN }}"
             "SlackSigningSecret=${{ secrets.QS_SLACK_SIGNING_SECRET }}"
             "SlackClientSecret=${{ secrets.QS_SLACK_CLIENT_SECRET }}"
@@ -403,6 +410,8 @@ jobs:
           STAGE: ${{ vars.STAGE }}
           AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
           RUN_PM: ${{ needs.detect-changes.outputs.run_paxminer }}
+          RUN_SB: ${{ needs.detect-changes.outputs.run_slackblast }}
+          RUN_QS: ${{ needs.detect-changes.outputs.run_qsignups }}
         run: |
           set -euo pipefail
           invoke_one() {
@@ -444,6 +453,24 @@ jobs:
             invoke_one "paxminer-${STAGE}-paxminer-schedule" '{"source":"smoke","dry_run":true}'
           else
             echo "Skipping PAXminer smoke test (stack not deployed this run)"
+          fi
+          function_name() {
+            local stack="$1" key="$2" arn
+            arn="$(aws cloudformation describe-stacks \
+              --stack-name "$stack" \
+              --query "Stacks[0].Outputs[?OutputKey=='${key}'].OutputValue | [0]" \
+              --output text)"
+            echo "${arn##*:}"
+          }
+          if [[ "${RUN_SB}" == "true" ]]; then
+            invoke_one "$(function_name "slackblast-${STAGE}" SlackblastFunction)" '{"source":"smoke"}'
+          else
+            echo "Skipping Slackblast smoke test (stack not deployed this run)"
+          fi
+          if [[ "${RUN_QS}" == "true" ]]; then
+            invoke_one "$(function_name "qsignups-${STAGE}" QSignupsFunction)" '{"source":"smoke"}'
+          else
+            echo "Skipping QSignups smoke test (stack not deployed this run)"
           fi
 
       - name: Deploy summary, receipt, and stage Slack manifests

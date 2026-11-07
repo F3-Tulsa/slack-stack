@@ -89,7 +89,27 @@ def _lambda_invocation_kind(event: dict) -> str:
     return "unknown"
 
 
+def _smoke(log: logging.Logger) -> dict:
+    """Prove this process can read the region schema. Return no row data."""
+    try:
+        from utilities.database import get_engine
+
+        engine = get_engine()
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+            row = conn.execute(text("SELECT team_id FROM region_config LIMIT 1")).first()
+        team_id = "" if row is None or row[0] is None else str(row[0]).strip()
+        if not team_id:
+            return {"statusCode": 500, "body": "region_config has no team_id"}
+    except Exception:
+        log.exception("Smoke: region schema check failed")
+        return {"statusCode": 500, "body": "region schema check failed"}
+    return {"statusCode": 200, "body": "ok"}
+
+
 def handler(event, context):
+    if isinstance(event, dict) and event.get("source") == "smoke":
+        return _smoke(logger)
     logger.info(
         "Lambda invocation kind=%s path=%s request_id=%s",
         _lambda_invocation_kind(event),

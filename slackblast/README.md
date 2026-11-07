@@ -34,7 +34,7 @@ pip install -r slackblast/requirements.txt
 # Optional: poetry install if you maintain dependencies via Poetry
 ```
 
-1. Copy [.env.example](.env.example) to **`.env`** in this same directory and set `SLACK_*`, `ADMIN_DATABASE_*`, **`IMAGE_S3_BUCKET`** (required for image URLs and uploads), `PAXMINER_SCHEMA`, etc.
+1. Copy [.env.example](.env.example) to **`.env`** in this same directory and set `SLACK_*`, `ADMIN_DATABASE_USER`, `ADMIN_DATABASE_PASSWORD`, **`DATABASE_SCHEMA`**, **`F3_REGION_NAME`**, and **`IMAGE_S3_BUCKET`** (required for image URLs and uploads).
 2. Create a **Slack app** from **[manifest.json](manifest.json)**. For local dev, replace every `__HOSTNAME__` with your ngrok **base URL** (e.g. `https://abc.ngrok-free.app`, no path). For AWS, run **`./deploy.sh`** from the repo root and use the generated **`slackblast/manifest-{test|prod}.json`** (gitignored), which already contains your Lambda **Function URL** base (no `/Prod/` stage prefix).
 
 3. Initialize a local DB: from this directory (`template.yaml` here), install the dev helper dependency (`pip install sqlalchemy-utils` — it is not bundled in the Lambda `requirements.txt`), then run  

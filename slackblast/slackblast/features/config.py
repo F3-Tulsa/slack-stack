@@ -71,9 +71,6 @@ def build_config_email_form(body: dict, client: WebClient, logger: Logger, conte
 
 def build_config_general_form(body: dict, client: WebClient, logger: Logger, context: dict, region_record: Region):
     config_form = copy.deepcopy(forms.CONFIG_GENERAL_FORM)
-    if not region_record.paxminer_schema:
-        config_form.delete_block(actions.CONFIG_POST_ACHIEVEMENTS_TO_AO)
-        config_form.delete_block(actions.CONFIG_POST_ACHIEVEMENTS_TO_AO_CONTEXT)
 
     config_form.set_initial_values(
         {
@@ -86,7 +83,7 @@ def build_config_general_form(body: dict, client: WebClient, logger: Logger, con
             or constants.DEFAULT_PREBLAST_MOLESKINE_TEMPLATE,
             actions.CONFIG_ENABLE_STRAVA: "enable" if region_record.strava_enabled == 1 else "disable",
             actions.CONFIG_POST_ACHIEVEMENTS_TO_AO: "yes"
-            if getattr(region_record, "post_achievements_to_ao", 0) == 1 and region_record.paxminer_schema
+            if getattr(region_record, "post_achievements_to_ao", 0) == 1
             else "no",
         }
     )
@@ -143,10 +140,9 @@ def handle_config_general_post(body: dict, client: WebClient, logger: Logger, co
         Region.preblast_moleskin_template: safe_get(config_data, actions.CONFIG_PREBLAST_MOLESKINE_TEMPLATE),
         Region.strava_enabled: 1 if safe_get(config_data, actions.CONFIG_ENABLE_STRAVA) == "enable" else 0,
     }
-    if region_record.paxminer_schema:
-        fields[Region.post_achievements_to_ao] = (
-            1 if safe_get(config_data, actions.CONFIG_POST_ACHIEVEMENTS_TO_AO) == "yes" else 0
-        )
+    fields[Region.post_achievements_to_ao] = (
+        1 if safe_get(config_data, actions.CONFIG_POST_ACHIEVEMENTS_TO_AO) == "yes" else 0
+    )
 
     DbManager.update_record(
         cls=Region,
@@ -158,12 +154,10 @@ def handle_config_general_post(body: dict, client: WebClient, logger: Logger, co
 
 
 def attach_paxminer_settings_button(config_form, region_record, *, team_id: str | None = None) -> bool:
-    """Add a PAXMiner Settings deep-link when the workspace is linked and PM_SLACK_APP_ID is set.
+    """Add a PAXMiner Settings deep-link when PM_SLACK_APP_ID is set.
 
     Returns True when the button replaced the `/config-paxminer` context line.
     """
-    if not getattr(region_record, "paxminer_schema", None):
-        return False
     app_id = (os.environ.get("PM_SLACK_APP_ID") or "").strip()
     if not app_id:
         return False

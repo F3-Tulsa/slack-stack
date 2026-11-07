@@ -121,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--schema",
         default=None,
-        help="Regional schema (default: PM_REGIONAL_SCHEMA or f3ttown_test)",
+        help="Region schema (default: DATABASE_SCHEMA or f3ttown_test)",
     )
     parser.add_argument(
         "--keep-roster",

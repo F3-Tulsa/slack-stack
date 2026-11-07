@@ -63,7 +63,7 @@ def upsert_paxminer_slack_token(
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                INSERT INTO `{registry_schema}`.`regions`
+                INSERT INTO `{registry_schema}`.`region_config`
                     (`region`, `slack_token`, `schema_name`, `active`)
                 VALUES (%s, %s, %s, 1)
                 ON DUPLICATE KEY UPDATE

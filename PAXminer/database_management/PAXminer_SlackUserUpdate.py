@@ -25,7 +25,9 @@ def database_management_update():
     user = os.environ.get("DATABASE_USER") or os.environ["user"]
     password = os.environ.get("DATABASE_PASSWORD") or os.environ["password"]
     full_run = os.environ.get("full_run") or os.environ.get("DATABASE_FULL_RUN")
-    db = os.environ.get("PAXMINER_SCHEMA", "paxminer")
+    from region_data import database_schema
+
+    db = database_schema()
     # Default TLS on when unset (matches paxminer_db.connect_from_env and SAM template)
     _tls = os.environ.get("DATABASE_TLS_ENABLED", "").strip().lower()
     if _tls in ("0", "false", "no", "off"):
@@ -51,7 +53,7 @@ def database_management_update():
     # Get list of regions and Slack tokens for PAXminer execution
     try:
         with mydb1.cursor() as cursor:
-            sql = f"SELECT * FROM `{db}`.`regions` where active = 1"
+            sql = f"SELECT * FROM `{db}`.`region_config` where active = 1"
             cursor.execute(sql)
             regions = cursor.fetchall()
             regions_df = pd.DataFrame(regions)

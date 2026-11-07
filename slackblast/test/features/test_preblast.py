@@ -49,6 +49,7 @@ def test_retried_preblast_create_posts_once():
     with (
         patch("features.preblast.forms.PREBLAST_FORM", form),
         patch("features.preblast.get_user_names", return_value=(["Q"], [""])),
+        patch("features.preblast.DbManager.find_records", return_value=[]),
         patch("utilities.interaction_claims.claim_interaction", side_effect=claim),
     ):
         for _ in range(2):

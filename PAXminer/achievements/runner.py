@@ -193,7 +193,7 @@ def resolve_achievement_channel(
     *,
     channel_override: str | None = None,
 ) -> str | None:
-    """Prefer the enabled award_achievements schedule, then achievement_channel."""
+    """Prefer the enabled award_achievements schedule, then region_achievements_channel."""
     if channel_override:
         return channel_override
     if pm_schema:
@@ -215,7 +215,7 @@ def resolve_achievement_channel(
         scheduled = _first_channel((row or {}).get("destination_channels"))
         if scheduled:
             return scheduled
-    return (region_row.get("achievement_channel") or "").strip() or None
+    return (region_row.get("region_achievements_channel") or "").strip() or None
 
 
 def _grant_payload(row, rule: dict) -> dict:
@@ -358,7 +358,7 @@ def run_achievements_for_region(
     if announce and not channel_override and not channel:
         if not region_row.get("send_achievements"):
             return {"skipped": "send_achievements off"}
-        channel = region_row.get("achievement_channel")
+        channel = region_row.get("region_achievements_channel")
         if channel:
             channels = [channel]
     token_enc = region_row.get("slack_token")
@@ -906,7 +906,7 @@ def reconcile_rule_awards(
 def run_daily(conn, pm_schema: str, *, dry_run: bool = False, announce: bool = True) -> list[dict]:
     results = []
     with conn.cursor() as cur:
-        cur.execute(f"SELECT * FROM `{pm_schema}`.`regions` WHERE active=1")
+        cur.execute(f"SELECT * FROM `{pm_schema}`.`region_config` WHERE active=1")
         regions = cur.fetchall()
     for row in regions:
         schema = row.get("schema_name")
