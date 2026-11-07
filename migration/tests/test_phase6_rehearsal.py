@@ -136,6 +136,31 @@ def test_rehearsal_copies_one_region_and_qsignups():
     assert not any(name.startswith("weaselbot_") or name.startswith("f3scissortail_") for name in sources)
 
 
+def test_unreadable_index_names_are_reported():
+    from prepare_rehearsal import collation_collisions
+
+    class Cursor:
+        def execute(self, sql, params=None):
+            return None
+
+        def fetchall(self):
+            return [
+                {
+                    "table_name": "bad-name",
+                    "index_name": "PRIMARY",
+                    "seq": 1,
+                    "column_name": "ao",
+                    "data_type": "varchar",
+                }
+            ]
+
+        def fetchone(self):
+            return None
+
+    problems = collation_collisions(Cursor(), "f3ttown_prod")
+    assert problems == ["f3ttown_prod skipped unreadable index bad-name.PRIMARY"]
+
+
 def test_collation_collision_uses_the_whole_unique_index():
     from prepare_rehearsal import collation_collisions
 
@@ -291,6 +316,36 @@ def test_take_snapshot_ignores_other_regions(monkeypatch):
     result = audit.take_snapshot(Cursor(), "rehearsal")
     assert seen == ["f3ttown_rehearsal"]
     assert list(result["schemas"]) == ["f3ttown_rehearsal"]
+
+
+def test_snapshot_tokens_flags_plaintext_in_region_config():
+    import audit_achievements as audit
+
+    class Cursor:
+        def __init__(self):
+            self.sql = ""
+
+        def execute(self, sql, params=None):
+            self.sql = sql
+
+        def fetchone(self):
+            return {"c": 1}
+
+        def fetchall(self):
+            if "region_config" in self.sql and "slack_token" in self.sql:
+                return [{"token": "xoxb-live", "label": "f3ttown", "schema_name": "f3ttown_rehearsal"}]
+            if "sb_bot_token" in self.sql:
+                return [{"token": "gAAAAAencrypted", "label": "f3ttown", "schema_name": "f3ttown_rehearsal"}]
+            return []
+
+    reports = audit.snapshot_tokens(Cursor(), "rehearsal")
+    slack = next(r for r in reports if r["table"] == "region_config" and r["column"] == "slack_token")
+    bot = next(r for r in reports if r["column"] == "sb_bot_token")
+    assert slack["counts"]["plaintext"] == 1
+    assert bot["counts"]["fernet"] == 1
+    findings = audit.findings_from_snapshot({"schemas": {}, "tokens": reports})
+    assert any(f["code"] == "plaintext_token" and "region_config.slack_token" in f["detail"] for f in findings)
+    assert not any("sb_bot_token" in f["detail"] for f in findings)
 
 
 def test_audit_plaintext_token_is_a_finding():

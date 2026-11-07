@@ -223,10 +223,14 @@ def snapshot_region(cur, schema: str) -> dict:
 def snapshot_tokens(cur, stage: str) -> list[dict]:
     """Storage state of every Slack token across registries. Never includes values."""
     reports: list[dict] = []
+    region_schema = f"f3ttown_{stage}"
     targets = [
         (_pm_schema(stage), "regions", "slack_token", "region"),
         (_wb_schema(stage), "regions", "slack_token", "team_id"),
         (_sb_schema(stage), "regions", "bot_token", "id"),
+        (region_schema, "region_config", "slack_token", "region"),
+        (region_schema, "region_config", "sb_bot_token", "region"),
+        (region_schema, "qsignups_regions", "bot_token", "team_id"),
     ]
     for schema, table, column, label_col in targets:
         if not _table_exists(cur, schema, table) or not _column_exists(cur, schema, table, column):
