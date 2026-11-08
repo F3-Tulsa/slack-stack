@@ -76,6 +76,45 @@ def test_differences_flag_collation_width_index_and_extra_column():
     assert "extra table extra" in found
 
 
+def test_differences_flag_auto_increment_table_collation_and_views():
+    expected = {
+        "qsignups_features": {
+            "collation": "utf8mb4_bin",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "int",
+                    "nullable": False,
+                    "default": None,
+                    "collation": "",
+                    "auto_increment": True,
+                }
+            ],
+            "indexes": [],
+        }
+    }
+    live = {
+        "qsignups_features": {
+            "collation": "utf8mb4_0900_ai_ci",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "int",
+                    "nullable": False,
+                    "default": None,
+                    "collation": "",
+                    "auto_increment": False,
+                }
+            ],
+            "indexes": [],
+        }
+    }
+    found = differences(live, expected, live_views=set(), expected_views={"vw_aos_sort"})
+    assert any("auto_increment" in item for item in found)
+    assert any("table collation" in item for item in found)
+    assert "missing view vw_aos_sort" in found
+
+
 def test_conversion_recreates_weekly_idx_after_convert():
     text = "\n".join(CONVERSION_SQL)
     assert text.index("qsignups_weekly CONVERT") < text.index("ADD UNIQUE KEY weekly_idx")

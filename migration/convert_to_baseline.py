@@ -25,7 +25,9 @@ from baseline_shape import (  # noqa: E402
     QSIGNUPS_TABLES,
     differences,
     fetch_live,
+    fetch_views,
     parse_baseline,
+    parse_views,
     secondary_indexes,
 )
 from migrate import (  # noqa: E402
@@ -72,11 +74,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     if args.compare:
-        expected = parse_baseline(BASELINE.read_text(encoding="utf-8"))
+        text = BASELINE.read_text(encoding="utf-8")
+        expected = parse_baseline(text)
         conn = connect(settings)
         try:
             with conn.cursor() as cursor:
-                found = differences(fetch_live(cursor, schema), expected)
+                found = differences(
+                    fetch_live(cursor, schema),
+                    expected,
+                    live_views=fetch_views(cursor, schema),
+                    expected_views=parse_views(text),
+                )
         finally:
             conn.close()
         if found:
