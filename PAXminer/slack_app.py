@@ -510,7 +510,7 @@ def _delete_one_achievement(cur, schema: str, achievement_id: int) -> dict | Non
 
 def _announce_achievement_deleted(region: dict, client, user_id: str, deleted: dict) -> None:
     """Same paxminer_logs / channel line as a manual single delete."""
-    from achievements.copy import achievement_admin_log_line, admin_channel_line
+    from achievements.wording import achievement_admin_log_line, admin_channel_line
     from slack_util import mention
 
     name = deleted["name"]
