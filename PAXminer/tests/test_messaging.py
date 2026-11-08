@@ -18,7 +18,7 @@ def _slack_err(error: str, status: int = 200, headers: dict | None = None) -> Sl
 
 
 def test_admin_channel_line_created_changed_deleted():
-    from achievements.copy import admin_channel_line
+    from achievements.wording import admin_channel_line
 
     created = admin_channel_line("created", "Six Pack", "<@UADMIN1234>", granted=0)
     assert created == "Achievement *Six Pack* was created by <@UADMIN1234> (0 granted)."
@@ -38,7 +38,7 @@ def test_admin_channel_line_created_changed_deleted():
 
 
 def test_achievement_admin_log_omits_empty_fields_and_fences_status():
-    from achievements.copy import achievement_admin_log_line
+    from achievements.wording import achievement_admin_log_line
 
     created = achievement_admin_log_line(
         name="Six Pack",

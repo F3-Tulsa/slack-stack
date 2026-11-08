@@ -695,7 +695,7 @@ def run_achievements_for_region(
 
 def _version_log_fields(cur, schema: str, achievement_id: int, *, action: str) -> dict:
     """Current (and superseded) version rows for the admin log Rules/Version/Code fields."""
-    from achievements.copy import achievement_rule_phrase
+    from achievements.wording import achievement_rule_phrase
 
     cur.execute(
         f"""

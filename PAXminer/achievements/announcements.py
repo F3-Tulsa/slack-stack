@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 from datetime import date
 
-from achievements.copy import (
+from achievements.wording import (
     achievement_admin_log_line,
     admin_channel_line,
 )

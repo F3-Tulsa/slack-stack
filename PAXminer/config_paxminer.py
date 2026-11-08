@@ -82,7 +82,7 @@ def _with_initial(options: list[dict], value: str | None) -> dict:
 
 
 def _achievement_summary(row: dict) -> str:
-    from achievements.copy import achievement_rule_phrase
+    from achievements.wording import achievement_rule_phrase
 
     version = row.get("version") or row.get("version_key") or "v?"
     enabled = "on" if int(row.get("enabled") or 0) else "off"
