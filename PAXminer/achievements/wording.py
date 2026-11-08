@@ -1,4 +1,8 @@
-"""Pandas-free achievement copy. Safe to import from SlackFunction."""
+"""Pandas-free achievement wording. Safe to import from SlackFunction.
+
+The module is not named copy: handlers.py puts this directory on sys.path,
+and a file named copy.py shadows the stdlib copy module.
+"""
 
 from __future__ import annotations
 
