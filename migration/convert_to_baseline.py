@@ -53,11 +53,58 @@ def guard(path: Path, *, write: bool, allow_prod: bool = False) -> tuple[str, di
     return schema, connection_settings(env, "TARGET")
 
 
+def compare_recorded(cursor, schema: str, settings: dict) -> list[str]:
+    """Diff a live schema against the files recorded in schema_migrations.
+
+    The expected shape is built by applying those files to a throwaway schema
+    on the same server, then dropping it. Views are compared by name only.
+    """
+    cursor.execute(f"SELECT version FROM `{schema}`.`schema_migrations` ORDER BY version")
+    versions = [int(row["version"]) for row in cursor.fetchall()]
+    if not versions:
+        raise MigrationError(f"{schema} has no recorded migrations to compare")
+    expected, expected_views = _materialize(settings, versions)
+    return differences(
+        fetch_live(cursor, schema),
+        expected,
+        live_views=fetch_views(cursor, schema),
+        expected_views=expected_views,
+    )
+
+
+def _materialize(settings: dict, versions: list[int]) -> tuple[dict, set[str]]:
+    from migrate import discover, split_sql
+
+    temp = "zzcmpshape"
+    chosen = [item for item in discover(BASELINE.parent) if item.version in set(versions)]
+    conn = connect(settings)
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(f"DROP DATABASE IF EXISTS `{temp}`")
+            cursor.execute(
+                f"CREATE DATABASE `{temp}` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+            )
+            cursor.execute(f"USE `{temp}`")
+            for migration in chosen:
+                for statement in split_sql(migration.sql):
+                    cursor.execute(statement)
+            live = fetch_live(cursor, temp)
+            views = fetch_views(cursor, temp)
+            cursor.execute(f"DROP DATABASE IF EXISTS `{temp}`")
+        return live, views
+    finally:
+        conn.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Convert a copied region schema toward 0001")
     parser.add_argument("--env-file", type=Path, required=True)
     parser.add_argument("--yes", action="store_true", help="Write. Without this, only print.")
-    parser.add_argument("--compare", action="store_true", help="Read-only diff against 0001.")
+    parser.add_argument(
+        "--compare",
+        action="store_true",
+        help="Read-only diff against the migrations recorded on the schema. Views are compared by name only.",
+    )
     parser.add_argument(
         "--allow-prod",
         action="store_true",
@@ -74,25 +121,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     if args.compare:
-        text = BASELINE.read_text(encoding="utf-8")
-        expected = parse_baseline(text)
         conn = connect(settings)
         try:
             with conn.cursor() as cursor:
-                found = differences(
-                    fetch_live(cursor, schema),
-                    expected,
-                    live_views=fetch_views(cursor, schema),
-                    expected_views=parse_views(text),
-                )
+                found = compare_recorded(cursor, schema, settings)
         finally:
             conn.close()
         if found:
-            print(f"{schema} differs from 0001:")
+            print(f"{schema} differs from its recorded migrations:")
             for item in found:
                 print(f"  {item}")
             return 1
-        print(f"{schema} matches 0001")
+        print(f"{schema} matches its recorded migrations")
         return 0
     print(f"-- drop every non-primary index on {', '.join(QSIGNUPS_TABLES)}")
     for statement in CONVERSION_SQL:
