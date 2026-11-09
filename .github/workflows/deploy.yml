@@ -58,6 +58,7 @@ jobs:
             --workflow deploy.yml \
             --branch "${{ github.ref_name }}" \
             --status success \
+            --event push \
             --limit 20 \
             --json headSha \
             --jq '[.[] | select(.headSha != "${{ github.sha }}")][0].headSha // empty')
