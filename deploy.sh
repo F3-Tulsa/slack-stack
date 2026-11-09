@@ -220,6 +220,14 @@ run_bootstrap() {
   fi
 }
 
+refuse_community_repo() {
+  local repo="$1"
+  if [[ "$repo" == "F3Nation-Community/slack-stack" ]]; then
+    echo "Error: refusing to create a GitHub environment on F3Nation-Community/slack-stack." >&2
+    return 1
+  fi
+}
+
 run_setup_github() {
   local repo role_arn
   require_cmd gh
@@ -231,6 +239,7 @@ run_setup_github() {
     echo "Error: could not parse owner/repo from git remote 'origin'." >&2
     exit 1
   fi
+  refuse_community_repo "$repo"
   role_arn="${AWS_ROLE_ARN:-}"
   if [[ -z "$role_arn" ]]; then
     role_arn="$(cf_output "$BOOTSTRAP_STACK_NAME" "GitHubDeployRoleArn")"
@@ -254,6 +263,10 @@ run_setup_github() {
   gh variable set QS_SLACK_CLIENT_ID --env "$STAGE" --body "$QS_SLACK_CLIENT_ID" -R "$repo"
   [[ -n "${PM_SLACK_APP_ID:-}" ]] && \
     gh variable set PM_SLACK_APP_ID --env "$STAGE" --body "$PM_SLACK_APP_ID" -R "$repo"
+  [[ -n "${ENABLE_XRAY:-}" ]] && \
+    gh variable set ENABLE_XRAY --env "$STAGE" --body "$ENABLE_XRAY" -R "$repo"
+  [[ -n "${RUN_EXTEND_SCHEDULE:-}" ]] && \
+    gh variable set RUN_EXTEND_SCHEDULE --env "$STAGE" --body "$RUN_EXTEND_SCHEDULE" -R "$repo"
   echo "Set GitHub Actions variables for environment '$STAGE'."
 
   gh secret set AWS_ROLE_ARN --env "$STAGE" --body "$role_arn" -R "$repo"

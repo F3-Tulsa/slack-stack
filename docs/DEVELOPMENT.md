@@ -2,6 +2,8 @@
 
 For deploy, env vars, and OAuth setup see **[DEPLOY.md](DEPLOY.md)**.
 
+Shared changes go to the F3Nation-Community repository's `main` once that repository exists. A region's fork deploys its own `test` and `prod`. Until then, open pull requests on this repository. There is no clone URL here yet, because that repository does not exist.
+
 **Packaging on AWS:** **PAXminer** deploys as **container images** (Docker builds pushed to ECR). **slackblast** and **qsignups** use SAM **zip** packaging (CI uses `--use-container` on `sam build` for Linux-compatible native wheels).
 
 Use a **virtual environment per app** (dependencies differ):
@@ -42,7 +44,7 @@ All PAXminer tests run without a database.
 ```bash
 python PAXminer/scripts/seed_test_region.py --yes --verify
 python PAXminer/scripts/seed_test_region.py --interactive
-# optional: python PAXminer/scripts/seed_test_region.py --schema f3ttown_test --days 180 --synthetic-pax 12
+# optional: python PAXminer/scripts/seed_test_region.py --schema yourregion_test --days 180 --synthetic-pax 12
 ```
 
 Pulls real test-workspace users via `PM_SLACK_TOKEN` and the AO list from QSignups (`qsignups_aos`, falling back to the regional `aos` table then all channels). Synthetic PAX (`--synthetic-pax`) fill leaderboards but are not in Slack — prefer `dm_specific_pax` when testing PAX chart DMs. Requires `F3_REGION_SLACK_TEAM_ID` to match Slack `auth.test`. Dev-only — not part of CI or deploy.

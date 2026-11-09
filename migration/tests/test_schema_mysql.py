@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,21 @@ def _conn():
     return connect(SETTINGS)
 
 
+def _apply_legacy_qsignups(cursor):
+    """Build the old QSignups shape from the SQL files a region would have."""
+    from migrate import split_sql
+
+    root = _REPO / "qsignups" / "db"
+    files = sorted((root / "tables").glob("*.sql")) + sorted((root / "scripts").glob("*.sql"))
+    cursor.execute("USE fixture_qsignups")
+    for path in files:
+        text = "\n".join(
+            line for line in path.read_text(encoding="utf-8").splitlines() if not line.strip().upper().startswith("USE ")
+        )
+        for statement in split_sql(text):
+            cursor.execute(statement)
+
+
 def test_migrate_then_import_then_fresh_install_is_idempotent():
     conn = _conn()
     schema = "citest_test"
@@ -43,39 +59,19 @@ def test_migrate_then_import_then_fresh_install_is_idempotent():
             cursor.execute(f"DROP DATABASE IF EXISTS `{schema}`")
             cursor.execute("DROP DATABASE IF EXISTS fixture_qsignups")
             cursor.execute("CREATE DATABASE fixture_qsignups")
+            _apply_legacy_qsignups(cursor)
             cursor.execute(
-                """
-                CREATE TABLE fixture_qsignups.qsignups_regions (
-                  id int NOT NULL AUTO_INCREMENT,
-                  team_id varchar(100) NOT NULL,
-                  bot_token varchar(100) DEFAULT NULL,
-                  google_auth_data longtext,
-                  timezone varchar(45) DEFAULT NULL,
-                  PRIMARY KEY (id),
-                  UNIQUE KEY region_idx (team_id)
-                )
-                """
+                "INSERT INTO fixture_qsignups.qsignups_regions (team_id, bot_token, google_auth_data, timezone) "
+                "VALUES ('T_FIXTURE', 'xoxb-ours', '{\"secret\": true}', 'America/Chicago'), "
+                "('T_OTHER', 'xoxb-theirs', '{\"secret\": true}', 'America/Chicago')"
             )
             cursor.execute(
-                """
-                CREATE TABLE fixture_qsignups.qsignups_features (
-                  id int NOT NULL AUTO_INCREMENT,
-                  region_id int NOT NULL,
-                  feature varchar(45) NOT NULL,
-                  enabled tinyint NOT NULL,
-                  PRIMARY KEY (id)
-                )
-                """
+                "INSERT INTO fixture_qsignups.qsignups_features (region_id, feature, enabled) "
+                "SELECT id, 'ours', 1 FROM fixture_qsignups.qsignups_regions WHERE team_id='T_FIXTURE'"
             )
             cursor.execute(
-                "INSERT INTO fixture_qsignups.qsignups_regions (team_id, google_auth_data, timezone) "
-                "VALUES ('T_FIXTURE', '{\"secret\":true}', 'America/Chicago')"
-            )
-            cursor.execute(
-                "INSERT INTO fixture_qsignups.qsignups_features (region_id, feature, enabled) VALUES (1, 'ours', 1)"
-            )
-            cursor.execute(
-                "INSERT INTO fixture_qsignups.qsignups_features (region_id, feature, enabled) VALUES (99, 'theirs', 1)"
+                "INSERT INTO fixture_qsignups.qsignups_features (region_id, feature, enabled) "
+                "SELECT id, 'theirs', 1 FROM fixture_qsignups.qsignups_regions WHERE team_id='T_OTHER'"
             )
             cursor.execute(
                 """
@@ -130,55 +126,21 @@ def test_migrate_then_import_then_fresh_install_is_idempotent():
                 "INSERT INTO fixture_qsignups.bd_attendance (user_id, ao_id, date, q_user_id) VALUES ('U1', 'C_AO', '2026-01-01', 'U1')"
             )
             cursor.execute(
-                """
-                CREATE TABLE fixture_qsignups.qsignups_aos (
-                  id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                  ao_channel_id varchar(255) NOT NULL,
-                  ao_display_name varchar(255) NOT NULL,
-                  ao_location_subtitle varchar(255) NOT NULL,
-                  team_id varchar(100) NOT NULL
-                )
-                """
-            )
-            cursor.execute(
-                "INSERT INTO fixture_qsignups.qsignups_aos (ao_channel_id, ao_display_name, ao_location_subtitle, team_id) "
-                "VALUES ('C_AO', 'The AO', 'park', 'T_FIXTURE')"
-            )
-            cursor.execute(
-                """
-                CREATE TABLE fixture_qsignups.qsignups_weekly (
-                  id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                  ao_channel_id varchar(32) NOT NULL,
-                  event_day_of_week varchar(16) NOT NULL,
-                  event_time varchar(16) NOT NULL,
-                  event_type varchar(255) NOT NULL,
-                  team_id varchar(32) NOT NULL
-                )
-                """
+                "INSERT INTO fixture_qsignups.qsignups_aos "
+                "(ao_channel_id, ao_display_name, ao_location_subtitle, team_id) "
+                "VALUES ('C_AO', 'The AO', 'park', 'T_FIXTURE'), ('C_OTHER', 'Other', 'park', 'T_OTHER')"
             )
             cursor.execute(
                 "INSERT INTO fixture_qsignups.qsignups_weekly "
                 "(ao_channel_id, event_day_of_week, event_time, event_type, team_id) "
-                "VALUES ('C_AO', 'Monday', '0530', 'bootcamp', 'T_FIXTURE')"
-            )
-            cursor.execute(
-                """
-                CREATE TABLE fixture_qsignups.qsignups_master (
-                  id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                  ao_channel_id varchar(255) NOT NULL,
-                  event_date date NOT NULL,
-                  event_time varchar(255) NOT NULL,
-                  event_day_of_week varchar(255) NOT NULL,
-                  event_type varchar(255) NOT NULL,
-                  event_recurring tinyint NOT NULL,
-                  team_id varchar(100) NOT NULL
-                )
-                """
+                "VALUES ('C_AO', 'Monday', '0530', 'bootcamp', 'T_FIXTURE'), "
+                "('C_OTHER', 'Monday', '0530', 'bootcamp', 'T_OTHER')"
             )
             cursor.execute(
                 "INSERT INTO fixture_qsignups.qsignups_master "
                 "(ao_channel_id, event_date, event_time, event_day_of_week, event_type, event_recurring, team_id) "
-                "VALUES ('C_AO', '2026-01-05', '0530', 'Monday', 'bootcamp', 1, 'T_FIXTURE')"
+                "VALUES ('C_AO', '2026-01-05', '0530', 'Monday', 'bootcamp', 1, 'T_FIXTURE'), "
+                "('C_OTHER', '2026-01-05', '0530', 'Monday', 'bootcamp', 1, 'T_OTHER')"
             )
         run(_REPO / "db" / "migrations", schema, SETTINGS, to=1, check=False)
         with conn.cursor() as cursor:
@@ -198,8 +160,10 @@ def test_migrate_then_import_then_fresh_install_is_idempotent():
             assert copied["qsignups_aos"] == 1
             assert copied["qsignups_weekly"] == 1
             assert copied["qsignups_master"] == 1
-            cursor.execute(f"SELECT google_auth_data FROM `{schema}`.qsignups_regions")
-            assert cursor.fetchone()["google_auth_data"] is None
+            cursor.execute(f"SELECT google_auth_data, bot_token FROM `{schema}`.qsignups_regions")
+            stored = cursor.fetchone()
+            assert stored["google_auth_data"] is None
+            assert stored["bot_token"] is None
             with pytest.raises(MigrationError, match="already has rows"):
                 import_rows(
                     cursor,
@@ -307,4 +271,72 @@ def test_failed_seed_rolls_back_and_the_next_run_finishes():
             cursor.execute(f"SELECT COUNT(*) AS c FROM `{schema}`.achievement_versions")
             assert int(cursor.fetchone()["c"]) == 14
     finally:
+        conn.close()
+
+
+def test_0002_fills_null_flags_and_leaves_a_real_value():
+    conn = _conn()
+    schema = "citest_flags"
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(f"DROP DATABASE IF EXISTS `{schema}`")
+        run(_REPO / "db" / "migrations", schema, SETTINGS, to=1, check=False)
+        with conn.cursor() as cursor:
+            cursor.execute(
+                f"INSERT INTO `{schema}`.region_config (region, slack_token, email_enabled) VALUES ('citest', '', 1)"
+            )
+        run(_REPO / "db" / "migrations", schema, SETTINGS, to=None, check=False)
+        with conn.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT email_enabled, email_option_show, editing_locked, postie_format,
+                       strava_enabled, default_destination, post_achievements_to_ao
+                FROM `{schema}`.region_config
+                """
+            )
+            assert list(cursor.fetchone().values()) == [1, 0, 0, 1, 1, "ao_channel", 0]
+    finally:
+        with conn.cursor() as cursor:
+            cursor.execute(f"DROP DATABASE IF EXISTS `{schema}`")
+        conn.close()
+
+
+def test_two_compares_at_once_match_and_leave_no_scratch_database():
+    conn = _conn()
+    schema = "citest_compare"
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(f"DROP DATABASE IF EXISTS `{schema}`")
+        run(_REPO / "db" / "migrations", schema, SETTINGS, to=None, check=False)
+        from convert_to_baseline import compare_recorded
+
+        results = []
+        errors = []
+
+        def work():
+            extra = connect(SETTINGS)
+            try:
+                with extra.cursor() as cursor:
+                    results.append(compare_recorded(cursor, schema, SETTINGS))
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                extra.close()
+
+        threads = [threading.Thread(target=work) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert errors == []
+        assert results == [[], []]
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT SCHEMA_NAME AS name FROM information_schema.SCHEMATA "
+                "WHERE SCHEMA_NAME LIKE 'compare_scratch_%'"
+            )
+            assert list(cursor.fetchall()) == []
+    finally:
+        with conn.cursor() as cursor:
+            cursor.execute(f"DROP DATABASE IF EXISTS `{schema}`")
         conn.close()

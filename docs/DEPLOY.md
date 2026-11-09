@@ -2,17 +2,19 @@
 
 This document covers first-time setup, environment variables, Slack OAuth, database encryption, local and GitHub Actions deploy, Lambda operations, and S3.
 
-- **Migrating data** between hosts: [MIGRATION.md](MIGRATION.md)
+- **Importing a region** from the old F3 Nation database: [migration/README.md](../migration/README.md)
 - **Local development** (tests, venvs): [DEVELOPMENT.md](DEVELOPMENT.md)
 
 ## New region database
 
-A new region starts from an empty schema. This command refuses `f3ttown_test` and `f3ttown_prod`. The `migrate_data.py --bootstrap-only` steps and `*_CREATE_OAUTH_TABLES` rows later in this document are Tulsa history. A new region does not use them. The baseline already creates the OAuth tables.
+A new region starts from an empty schema. `db/fresh_install.py` refuses `f3ttown_test` and `f3ttown_prod`. The baseline already creates the OAuth tables. A prod stage passes `--allow-prod` to `db/migrate.py` and `db/fresh_install.py`.
 
-1. AWS bootstrap and `./deploy.sh --setup-github` for that region's own fork.
-2. `python db/migrate.py --env-file .env.deploy.<stage> --to 1` creates the empty baseline. Coming from the old F3 Nation database, copy rows next with `python migration/legacy_import.py --env-file .env.deploy.<stage>`. See [migration/README.md](../migration/README.md). That importer was tested on a schema-only fixture, not a live national database.
+1. On the region's own fork, `./deploy.sh --env <stage> --build-only --setup-github`. This creates the GitHub environment and does not deploy. A plain `./deploy.sh --setup-github` deploys and smokes first, and the smoke fails when the schema does not exist yet.
+2. `python db/migrate.py --env-file .env.deploy.<stage> --to 1` creates the empty baseline. A region coming from the old F3 Nation database then runs `python migration/legacy_import.py --env-file .env.deploy.<stage>`. See [migration/README.md](../migration/README.md). That importer is tested on a schema-only fixture, not a live national database.
 3. `python db/fresh_install.py --env-file .env.deploy.<stage>` seeds defaults and applies later files. `F3_REGION_SLACK_TEAM_ID` is required. `--timezone` overrides `F3_TIMEZONE`, which otherwise defaults to `America/Chicago`.
 4. Deploy, then create the Slack apps.
+
+Sections later in this document that mention `migrate_data.py --bootstrap-only` or `SB_CREATE_OAUTH_TABLES` and `QS_CREATE_OAUTH_TABLES` are Tulsa history. A new region does not use them.
 
 ## Prerequisites
 
@@ -40,7 +42,7 @@ All deploy configuration is driven by environment variables. Copy [`.env.deploy.
 | `DATABASE_TLS_ENABLED` | `true` for TiDB Cloud and other TLS-required hosts; `false` for local MySQL or RDS without TLS |
 | `DB_ENCRYPTION_KEY` | **Required.** Any random string (min **16** characters) used as a passphrase for DB field encryption (see **Database encryption**). Must be the **same value** in `.env.deploy.*` and `migration/.env.migration.*` for a given stage. |
 | `IMAGE_S3_BUCKET` | Globally unique S3 bucket name for slackblast backblast images and **qsignups weinke** calendar PNGs under `weinkes/` (the slackblast stack creates this bucket) |
-| `F3_REGION_NAME` | Region key, lowercase letters and digits only (e.g. `f3ttown`). Every app uses one schema, `{F3_REGION_NAME}_{STAGE}` (`f3ttown_test` / `f3ttown_prod`), passed as `DATABASE_SCHEMA` |
+| `F3_REGION_NAME` | Region key, lowercase letters and digits only (e.g. `yourregion`). Every app uses one schema, `{F3_REGION_NAME}_{STAGE}` (`yourregion_test` / `yourregion_prod`), passed as `DATABASE_SCHEMA` |
 | `PM_SLACK_TOKEN` | PAXMiner Slack **bot** token; SAM passes to Lambdas, which **encrypt** and **upsert** into `{F3_REGION_NAME}_{STAGE}.region_config.slack_token` on cold start |
 | `PM_SLACK_SIGNING_SECRET` | PAXMiner Slack **signing secret** for the lightweight **SlackFunction** Bolt front door (`/config-paxminer` and interactivity) |
 | `PM_SLACK_APP_ID` | PAXMiner Slack **App ID** (`A…`, public). Slackblast uses it for the **PAXMiner Settings** deep-link on `/config-slackblast`. GitHub Actions: environment **variable**, not a secret. Leave empty to keep the `/config-paxminer` hint instead of the button. |
@@ -188,16 +190,7 @@ With `--log-type Tail`, decode logs with `jq -r '.LogResult' | base64 -d` if nee
 4. Confirm deploy smoke includes `paxminer-<stage>-paxminer-slack` warm ping (`statusCode: 200`).
 5. Re-apply the stage Slack app from **`PAXminer/manifest-<stage>.json`** after removing slash commands so Slack drops stale `/kotter-report`.
 
-### Weaselbot → PAXMiner cutover checklist
-
-1. Deploy **PAXMiner** then **slackblast** (CI waits for PAXMiner when both run so **`AchievementsFunctionUrl`** is available).
-2. Run **`python migration/paxminer_migrate.py --env <stage> --all`** (weaselbot fold-in, scheduler tables, **achievements versioning**, drop legacy `regions` columns). Deploy updated application code **before** the `drop-legacy-columns` phase. **Exception:** the `achievements` phase must run **before** shipping the PAXminer image that JOINs `achievement_versions` (`python migration/paxminer_migrate.py --env <stage> --phase achievements`). Slackblast and QSignups do not need a deploy for that phase. Re-run that phase after any release that adds an `achievements_list` column (most recently **`emoji`**); the app self-heals it on the `/config-paxminer` paths, but the migration is what guarantees it.
-3. Update **PAXMiner** Slack app from **`PAXminer/manifest-<stage>.json`** (**`SlackFunctionUrl`**, `reactions:write`, `emoji:read`) and reinstall so `emoji:read` is granted. That scope populates the award-reaction picker; without it the picker falls back to a small curated list. No **Options Load URL** is needed — the picker is a `static_select` that filters client-side, so it never calls back.
-4. Re-install or verify **slackblast** OAuth if needed; confirm achievement webhook env on slackblast Lambda.
-5. Configure **`/config-paxminer`**: achievement channel/toggles, then **Schedule** destinations (set channels for `specific_channels` rows; disable any unwanted fan-out).
-6. Smoke-invoke the PAXMiner Lambdas (see above) and run the Slack Bolt manual smoke.
-7. **Uninstall** the legacy WeaselBot Slack app from the workspace.
-8. When stable, drop **`weaselbot_<stage>`** schema and delete any remaining **weaselbot** CloudFormation stack (optional `--drop-weaselbot-schema` on the weaselbot phase).
+Tulsa's old cutover checklist now lives in [migration/README.md](../migration/README.md).
 
 **This stack must cost $0/month on AWS — see [docs/COST.md](COST.md).** Lambda invocations, Function URLs, EventBridge, and CloudWatch Logs all sit inside always-free allowances at this volume, and every log group sets `RetentionInDays: 30` to keep it that way. The charge that remains is **ECR image storage**. PAXMiner images share one repository, `slack-stack/paxminer`, declared in `infra/template.bootstrap.yaml`. Deploy that bootstrap stack before the app deploy that points at it. SnapStart is off.
 
@@ -388,7 +381,7 @@ Create environments **`test`** and **`prod`** in your repo settings (or run `./d
 | `STAGE` | `test` or `prod` | Must match SAM `StagesMap` keys |
 | `AWS_REGION` | `us-east-1` | |
 | `DATABASE_TLS_ENABLED` | `true` | Passed to all four stacks as `DatabaseTlsEnabled`; use `false` if your DB has no TLS |
-| `F3_REGION_NAME` | `f3ttown` | Workflow sets `DATABASE_SCHEMA` to `${F3_REGION_NAME}_${STAGE}` for all three apps |
+| `F3_REGION_NAME` | `yourregion` | Workflow sets `DATABASE_SCHEMA` to `${F3_REGION_NAME}_${STAGE}` for all three apps |
 | `IMAGE_S3_BUCKET` | `slack-stack-images-prod` | Globally unique |
 | `F3_REGION_SLACK_TEAM_ID` | `T01234567` | Slack workspace Team ID |
 | `PM_SLACK_APP_ID` | `A01234567` | PAXMiner Slack App ID for the **PAXMiner Settings** deep-link on `/config-slackblast` (public; use a variable, not a secret). Empty keeps the `/config-paxminer` hint. |

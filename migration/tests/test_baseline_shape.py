@@ -17,7 +17,7 @@ from baseline_shape import (  # noqa: E402
     differences,
     parse_baseline,
 )
-from convert_to_baseline import guard  # noqa: E402
+from convert_to_baseline import guard, scratch_name  # noqa: E402
 from migrate import MigrationError  # noqa: E402
 
 
@@ -132,3 +132,12 @@ def test_convert_refuses_prod_writes(tmp_path: Path):
         guard(path, write=True)
     schema, _settings = guard(path, write=False)
     assert schema == "f3ttown_prod"
+
+
+def test_scratch_name_is_unique_and_keeps_the_stage():
+    first = scratch_name("f3ttown_prod")
+    second = scratch_name("f3ttown_prod")
+    assert first.startswith("compare_scratch_")
+    assert first.endswith("_prod")
+    assert first != second
+    assert scratch_name("citest_retry").endswith("_test")
