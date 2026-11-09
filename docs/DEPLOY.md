@@ -5,6 +5,15 @@ This document covers first-time setup, environment variables, Slack OAuth, datab
 - **Migrating data** between hosts: [MIGRATION.md](MIGRATION.md)
 - **Local development** (tests, venvs): [DEVELOPMENT.md](DEVELOPMENT.md)
 
+## New region database
+
+A new region starts from an empty schema. This command refuses `f3ttown_test` and `f3ttown_prod`. The `migrate_data.py --bootstrap-only` steps and `*_CREATE_OAUTH_TABLES` rows later in this document are Tulsa history. A new region does not use them. The baseline already creates the OAuth tables.
+
+1. AWS bootstrap and `./deploy.sh --setup-github` for that region's own fork.
+2. `python db/migrate.py --env-file .env.deploy.<stage> --to 1` creates the empty baseline. Coming from the old F3 Nation database, copy rows next with `python migration/legacy_import.py --env-file .env.deploy.<stage>`. See [migration/README.md](../migration/README.md). That importer was tested on a schema-only fixture, not a live national database.
+3. `python db/fresh_install.py --env-file .env.deploy.<stage>` seeds defaults and applies later files. `F3_REGION_SLACK_TEAM_ID` is required. `--timezone` overrides `F3_TIMEZONE`, which otherwise defaults to `America/Chicago`.
+4. Deploy, then create the Slack apps.
+
 ## Prerequisites
 
 - [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
