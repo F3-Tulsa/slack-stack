@@ -32,9 +32,8 @@ def test_region_config_inserts_flag_defaults_and_an_empty_token():
     cursor = ScriptedCursor([None])
     assert seed_region_config(cursor, "newregion_test", region="newregion", team_id="T1", timezone="America/Chicago") == "inserted"
     sql, params = cursor.sqls[-1]
-    assert "''" not in sql or params[0] == "newregion"
-    assert params[2] == "America/Chicago"
-    assert "email_enabled" in sql
+    assert params == ("newregion", "newregion_test", "America/Chicago", "T1")
+    assert "1, '', %s, %s, 0, 0, 0, 0, 1, 1, 'ao_channel', 0" in sql
     assert "xox" not in sql
 
 

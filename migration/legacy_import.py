@@ -6,7 +6,7 @@ refuses a target table that already has rows. The target schema must match the
 env file and must record exactly version 1. Token columns, including
 ``google_auth_data``, are not copied.
 
-    python migration/legacy_import.py --env-file migration/.env.migration.test \\
+    python migration/legacy_import.py --env-file .env.deploy.test \\
         --source-schema <old regional schema> \\
         --qsignups-schema <old qsignups schema> \\
         --team-id <slack team> \\
@@ -103,7 +103,21 @@ def _region_ids(cursor, schema: str, team_id: str) -> list:
     return [row["id"] for row in cursor.fetchall()]
 
 
+def _require_present(cursor, schema: str, tables: tuple[str, ...]) -> None:
+    cursor.execute(
+        "SELECT SCHEMA_NAME AS name FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=%s",
+        (schema,),
+    )
+    if cursor.fetchone() is None:
+        raise MigrationError(f"source schema {schema} does not exist")
+    missing = [table for table in tables if not columns(cursor, schema, table)]
+    if missing:
+        raise MigrationError(f"source schema {schema} is missing {', '.join(missing)}")
+
+
 def import_rows(cursor, *, source_schema: str, qsignups_schema: str, target_schema: str, team_id: str) -> dict[str, int]:
+    _require_present(cursor, source_schema, REGIONAL_TABLES)
+    _require_present(cursor, qsignups_schema, QSIGNUPS_TABLES)
     tables = REGIONAL_TABLES + QSIGNUPS_TABLES
     require_baseline(cursor, target_schema)
     assert_targets_empty(cursor, target_schema, tables)
@@ -173,6 +187,9 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             conn.close()
     except MigrationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print("imported " + ", ".join(f"{name}={count}" for name, count in copied.items()))
