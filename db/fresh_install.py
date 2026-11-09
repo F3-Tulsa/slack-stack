@@ -7,7 +7,7 @@ empty; the Lambda cold start encrypts and writes it.
 
 Refuses ``f3ttown_test`` and ``f3ttown_prod``. Deploy does not call this.
 
-    python db/fresh_install.py --env-file migration/.env.migration.test
+    python db/fresh_install.py --env-file .env.deploy.test
 
 ``--timezone`` overrides ``F3_TIMEZONE``. Both default to America/Chicago.
 """
@@ -218,10 +218,14 @@ def fresh_install(
         raise MigrationError("F3_REGION_SLACK_TEAM_ID is required to seed qsignups_regions")
     applied = run(directory, schema, settings, to=to, check=False)
     conn = connect(settings)
+    conn.autocommit(False)
     try:
         with conn.cursor() as cursor:
             summary = seed(cursor, schema, region=region, team_id=team_id, timezone=timezone)
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
     summary["applied"] = getattr(applied, "applied", None) or []
@@ -256,6 +260,9 @@ def main(argv: list[str] | None = None) -> int:
             to=args.to,
         )
     except MigrationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(
