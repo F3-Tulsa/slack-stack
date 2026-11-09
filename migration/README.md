@@ -20,4 +20,13 @@ The importer is tested in CI against the old QSignups DDL in `qsignups/db` (`tab
 
 `migration/convert_to_baseline.py --compare` creates and drops a scratch database named `compare_scratch_<id>_<stage>` on the same server. The id is new every run. The stage suffix keeps the name inside that stage user's grant.
 
-Tulsa's own move is history in [docs/MIGRATION.md](../docs/MIGRATION.md). Do not run `migration/migrate_data.py` against Tulsa.
+## Tulsa history
+
+Do not run `migration/migrate_data.py` against Tulsa. The old host-to-host copy and the cutover below already happened.
+
+1. Deploy PAXMiner, then slackblast.
+2. `python migration/paxminer_migrate.py --env <stage> --all` folds in the old achievement config, adds the scheduler tables, versions achievements, and drops the legacy region columns. The achievements phase runs before the image that joins `achievement_versions`.
+3. Update the PAXMiner Slack app from `PAXminer/manifest-<stage>.json` and reinstall so `emoji:read` is granted.
+4. Confirm slackblast OAuth and the achievement webhook.
+5. Configure `/config-paxminer`, then smoke the Lambdas.
+6. Uninstall the legacy Slack app. When the new path is stable, drop `weaselbot_<stage>`. That drop already happened for Tulsa.

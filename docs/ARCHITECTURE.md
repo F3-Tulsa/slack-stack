@@ -23,7 +23,7 @@ Apps do **not** import each other’s Python packages; integration is via **shar
 ## Database and schemas
 
 - **Per-app schemas** (suffix `_test` / `_prod`): `paxminer_*`, `slackblast_*`, `qsignups_*`.
-- **Per-region schemas** (PAXminer “regional” data): e.g. `f3ttown_prod` — tables such as `aos`, `beatdowns`, `bd_attendance`, `users`.
+- **Per-region schemas** (PAXminer regional data): e.g. `yourregion_prod` — tables such as `aos`, `beatdowns`, `bd_attendance`, `users`.
 - **Registry:** `paxminer_<stage>.regions` lists regions and points at regional schema names and encrypted Slack tokens.
 
 ### Relational overview (conceptual)
