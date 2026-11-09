@@ -43,6 +43,7 @@ def test_bootstrap_insert_covers_required_region_config_columns():
     insert = bootstrap.split("INSERT INTO", 1)[1].split("VALUES", 1)[0]
     missing = [name for name in _not_null_without_default(REGION_CONFIG_DDL) if f"`{name}`" not in insert]
     assert missing == []
+    assert "0, 0, 0, 1, 1, 'ao_channel', 0" in bootstrap
 
 
 def test_guard_allows_prod_only_with_the_flag(tmp_path: Path):

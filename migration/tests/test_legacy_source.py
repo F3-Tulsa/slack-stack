@@ -34,3 +34,9 @@ def test_missing_source_schema_is_refused():
     cursor = ScriptedCursor([None])
     with pytest.raises(MigrationError, match="does not exist"):
         _require_present(cursor, "missing_prod", ("users",))
+
+
+def test_missing_source_table_is_refused():
+    cursor = ScriptedCursor([{"name": "old_prod"}])
+    with pytest.raises(MigrationError, match="missing users"):
+        _require_present(cursor, "old_prod", ("users",))
