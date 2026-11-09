@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 # One-time repo admin setup for dependabot auto-merge on main/test/prod.
-# Requires: gh auth with admin permissions on f3-tulsa/slack-stack
+# Requires: gh auth with admin permissions on the repo this runs against.
 set -euo pipefail
 
 REPO="${1:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
-MAIN_RULESET_ID="${MAIN_RULESET_ID:-15405638}"
-PROD_RULESET_ID="${PROD_RULESET_ID:-15405317}"
-TEST_RULESET_ID="${TEST_RULESET_ID:-15405493}"
+
+lookup_ruleset_id() {
+  local name="$1"
+  gh api --paginate "repos/${REPO}/rulesets" --jq ".[] | select(.name==\"${name}\") | .id" | head -1
+}
+
+MAIN_RULESET_ID="${MAIN_RULESET_ID:-$(lookup_ruleset_id "Main Set")}"
+PROD_RULESET_ID="${PROD_RULESET_ID:-$(lookup_ruleset_id "Prod Set")}"
+TEST_RULESET_ID="${TEST_RULESET_ID:-$(lookup_ruleset_id "Test Set")}"
+if [[ -z "$MAIN_RULESET_ID" || -z "$PROD_RULESET_ID" || -z "$TEST_RULESET_ID" ]]; then
+  echo "Error: could not find rulesets named Main Set, Prod Set, and Test Set on ${REPO}." >&2
+  exit 1
+fi
 
 echo "Configuring ${REPO}..."
 

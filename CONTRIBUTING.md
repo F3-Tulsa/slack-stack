@@ -6,7 +6,7 @@ See **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** for Python 3.12 venvs per app
 
 ## Branches
 
-Use **`main`** as the integration branch; **`test`** / **`prod`** track deployed environments as your team defines them. Prefer short-lived feature branches merged via PR.
+Shared changes go to the F3Nation-Community repository's `main` once that repository exists. A region's fork deploys its own `test` and `prod`. Until that repository exists, open pull requests here. This page does not link a repository that is not there yet. Prefer short-lived feature branches.
 
 ## Pull requests
 
