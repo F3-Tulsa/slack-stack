@@ -16,6 +16,8 @@ App code never creates or alters tables. A schema change is a new numbered file 
 
 `0002_region_flag_defaults.sql` gives Slackblast's flag columns server defaults and fills NULLs.
 
+`0003_achievement_keys.sql` adds a unique key on `achievements_list.code` and an index on `achievements_awarded.pax_id`. Apply it only when asked, after checking that no code is duplicated.
+
 `python db/fresh_install.py --env-file .env.deploy.test` creates a new region's schema, applies pending files, and seeds defaults only when the report and achievement tables are empty. It refuses `f3ttown_test` and `f3ttown_prod`. `F3_REGION_SLACK_TEAM_ID` is required. `--timezone` overrides `F3_TIMEZONE`, which otherwise defaults to `America/Chicago`. The Slack token is left empty for the Lambda cold start.
 
 `CREATE TABLE IF NOT EXISTS` lets a failed first apply be retried, but it also lets a plain apply record `0001` on a schema that already has different tables. The runner refuses that. Adopt an existing schema with `--mark-applied`. A failed fresh install that holds no data is dropped and run again.

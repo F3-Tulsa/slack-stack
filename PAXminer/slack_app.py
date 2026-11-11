@@ -794,6 +794,11 @@ def _values_from_builtin_seed(seed: dict) -> dict:
     }
 
 
+def _is_duplicate_key(exc: BaseException) -> bool:
+    """MySQL 1062: the unique code (or another unique key) rejected the insert."""
+    return getattr(exc, "args", (None,))[0] == 1062
+
+
 def _add_one_achievement(cur, schema: str, values: dict, user_id: str, *, mode, from_date, to_date) -> int:
     """Same list + version insert as saving a new achievement from the add form."""
     from achievements.activity import activity_legacy_mirror, resolve_activity_filter_for_save
@@ -876,15 +881,20 @@ def handle_restore_achievements(ack, body, client, logger):
                     version_created=today,
                     minting=False,
                 )
-                achievement_id = _add_one_achievement(
-                    cur,
-                    regional_schema,
-                    values,
-                    user_id,
-                    mode=mode,
-                    from_date=from_date,
-                    to_date=to_date,
-                )
+                try:
+                    achievement_id = _add_one_achievement(
+                        cur,
+                        regional_schema,
+                        values,
+                        user_id,
+                        mode=mode,
+                        from_date=from_date,
+                        to_date=to_date,
+                    )
+                except Exception as extra:
+                    if not _is_duplicate_key(extra):
+                        raise
+                    continue
                 added += 1
                 if should_auto_queue(
                     is_new=True,
@@ -1270,15 +1280,22 @@ def handle_achievement_edit_submit(ack, body, client, logger):
                         range_mode=mode,
                     )
             else:
-                achievement_id = _add_one_achievement(
-                    cur,
-                    regional_schema,
-                    values,
-                    user_id,
-                    mode=mode,
-                    from_date=from_date,
-                    to_date=to_date,
-                )
+                try:
+                    achievement_id = _add_one_achievement(
+                        cur,
+                        regional_schema,
+                        values,
+                        user_id,
+                        mode=mode,
+                        from_date=from_date,
+                        to_date=to_date,
+                    )
+                except Exception as extra:
+                    if not _is_duplicate_key(extra):
+                        raise
+                    conn.rollback()
+                    ack(response_action="errors", errors={"code": "Code already in use"})
+                    return
 
             should_queue = should_auto_queue(
                 is_new=not bool(existing),

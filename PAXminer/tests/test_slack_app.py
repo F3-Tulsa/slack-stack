@@ -590,6 +590,50 @@ def test_cosmetic_edit_does_not_mint_version():
     assert "enabled=%s" not in update_sql
 
 
+def test_duplicate_code_on_insert_reports_code_already_in_use():
+    """A unique-key race (MySQL 1062) shows the same error as the pre-check."""
+    from slack_app import handle_achievement_edit_submit
+
+    ack = MagicMock()
+    body = {
+        "user": {"id": "U1"},
+        "view": {
+            "private_metadata": '{"team_id":"T1","regional_schema":"f3test"}',
+            "state": {"values": {}},
+        },
+    }
+    values = {
+        "name": "Six Pack",
+        "description": "d",
+        "verb": "v",
+        "code": "six_pack",
+        "metric": "posts",
+        "activity_filter": {"include": ["beatdown"], "exclude": []},
+        "period": "week",
+        "threshold": 6,
+        "enabled": 1,
+        "range_mode": "all_attendance",
+    }
+    duplicate = Exception(1062, "Duplicate entry 'six_pack' for key 'uniq_code'")
+    with patch("slack_app.is_slack_admin", return_value=True):
+        with patch("slack_app._region_context_from_body", return_value=("T1", "f3test", {"region": "t"})):
+            with patch("slack_app._parse_achievement_form", return_value=values):
+                with patch("slack_app._validate_achievement", return_value={}):
+                    with patch("slack_app.connect_from_env") as mock_conn:
+                        mock_cur = MagicMock()
+                        mock_cur.fetchone.return_value = None
+                        mock_conn.return_value.cursor.return_value.__enter__.return_value = mock_cur
+                        mock_conn.return_value.cursor.return_value.__exit__.return_value = False
+                        with patch("slack_app.earliest_beatdown_date", return_value=None):
+                            with patch("slack_app._add_one_achievement", side_effect=duplicate):
+                                handle_achievement_edit_submit(ack, body, MagicMock(), MagicMock())
+    ack.assert_called_once_with(
+        response_action="errors",
+        errors={"code": "Code already in use"},
+    )
+    mock_conn.return_value.rollback.assert_called_once()
+
+
 def _achievement_edit_submit_body(
     *,
     include_activity: bool,

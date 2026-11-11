@@ -42,15 +42,18 @@ RUNTIME_ADDED_COLUMNS = {
     "achievements_list": ("reeval_queued_at", "emoji"),
 }
 
-# Keys only the copies declared, as (table, columns, unique). A copy ran only
-# when its table was missing, and 0001 was taken from the rehearsed schema, so
-# no live schema has these. Adding one needs a numbered migration; until then
-# this list must match exactly, so a new gap fails here.
+# Keys the copies declared that no numbered file adds, as (table, columns, unique).
+# 0003 adds UNIQUE code and KEY pax_id. KEY enabled stays out: the table is tiny.
+# A new gap fails here.
 COPY_ONLY_KEYS = {
-    ("achievements_list", ("code",), True),
     ("achievements_list", ("enabled",), False),
-    ("achievements_awarded", ("pax_id",), False),
 }
+
+_ALTER_TABLE = re.compile(r"ALTER\s+TABLE\s+`?(\w+)`?", re.IGNORECASE)
+_ADDED_KEY = re.compile(
+    r"ADD\s+(UNIQUE\s+)?KEY\s+`\w+`\s*\(([^)]*)\)",
+    re.IGNORECASE,
+)
 
 _COPY_COLUMN = re.compile(r"^\s*`(\w+)`\s", re.MULTILINE)
 _COPY_KEY = re.compile(
@@ -91,7 +94,23 @@ def test_baseline_has_the_copied_views():
     assert COPIED_VIEWS <= views
 
 
-def test_only_known_copy_keys_are_missing_from_baseline():
+def _keys_added_after_baseline() -> set[tuple[str, tuple[str, ...], bool]]:
+    """Keys later numbered files add. 0001 itself has no ALTER TABLE."""
+    keys: set[tuple[str, tuple[str, ...], bool]] = set()
+    for path in sorted(BASELINE.parent.glob("*.sql")):
+        if path.name.startswith("0001"):
+            continue
+        for statement in path.read_text(encoding="utf-8").split(";"):
+            table = _ALTER_TABLE.search(statement)
+            if not table:
+                continue
+            for unique, cols in _ADDED_KEY.findall(statement):
+                columns = tuple(part.strip().strip("`") for part in cols.split(","))
+                keys.add((table.group(1), columns, bool(unique.strip())))
+    return keys
+
+
+def test_only_known_copy_keys_are_missing_from_the_migrations():
     baseline = _baseline()
     uncovered = set()
     for table, ddl in COPIED_TABLES.items():
@@ -103,7 +122,11 @@ def test_only_known_copy_keys_are_missing_from_baseline():
             )
             if not covered:
                 uncovered.add((table, columns, unique))
-    assert uncovered == COPY_ONLY_KEYS
+    added = _keys_added_after_baseline()
+    assert ("achievements_list", ("code",), True) in added
+    assert ("achievements_awarded", ("pax_id",), False) in added
+    assert ("achievements_list", ("enabled",), False) not in added
+    assert uncovered - added == COPY_ONLY_KEYS
 
 
 def test_app_relies_on_baseline_unique_keys():
