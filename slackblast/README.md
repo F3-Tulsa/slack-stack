@@ -2,7 +2,7 @@
 
 Slack app for **backblasts**, **preblasts**, optional **Strava** linking, email-to-post, custom fields, and FNG welcome flows. It uses the same shared database as PAXminer (per-region schemas plus a central `slackblast` schema).
 
-Built from **[slack-stack](../README.md)**. Deploy with `slackblast/template.yaml`, `./deploy.sh`, or GitHub Actions. Secrets, **`DB_ENCRYPTION_KEY`**, **`IMAGE_S3_BUCKET`**, migration: **[docs/DEPLOY.md](../docs/DEPLOY.md)** and **[docs/MIGRATION.md](../docs/MIGRATION.md)**.
+Built from **[slack-stack](../README.md)**. Deploy with `slackblast/template.yaml`, `./deploy.sh`, or GitHub Actions. Secrets, **`DB_ENCRYPTION_KEY`**, **`IMAGE_S3_BUCKET`**: **[docs/DEPLOY.md](../docs/DEPLOY.md)**.
 
 ## Getting started (production)
 

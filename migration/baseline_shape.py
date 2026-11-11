@@ -107,7 +107,7 @@ _COLUMN = re.compile(
     r"(?:\s+(?P<nullability>NOT NULL|NULL))?"
     r"(?:\s+DEFAULT\s+(?P<default>CURRENT_TIMESTAMP|NULL|'(?:[^']|\\')*'))?"
     r"(?:\s+ON UPDATE\s+CURRENT_TIMESTAMP)?"
-    r"(?:\s+AUTO_INCREMENT)?$",
+    r"(?P<auto>\s+AUTO_INCREMENT)?$",
     re.IGNORECASE,
 )
 _INDEX = re.compile(
@@ -117,8 +117,13 @@ _INDEX = re.compile(
 _INT_WIDTH = re.compile(r"\b(tinyint|smallint|mediumint|int|bigint)\(\d+\)")
 
 
+def parse_views(sql: str) -> set[str]:
+    """View names in 0001. The compare checks that each one exists."""
+    return set(re.findall(r"CREATE OR REPLACE SQL SECURITY INVOKER VIEW `([^`]+)`", sql))
+
+
 def parse_baseline(sql: str) -> dict[str, dict]:
-    """Tables in 0001, keyed by name. Views are not part of the column compare."""
+    """Tables in 0001, keyed by name."""
     tables: dict[str, dict] = {}
     for statement in _statements(sql):
         match = re.match(r"CREATE TABLE IF NOT EXISTS `([^`]+)` \(", statement)
@@ -142,16 +147,27 @@ def parse_baseline(sql: str) -> dict[str, dict]:
                 indexes.append(_index(line))
         tables[name] = {
             "charset": charset.group(1) if charset else "",
-            "collation": table_collation,
+            "collation": (table_collation or "").lower(),
             "columns": columns,
             "indexes": indexes,
         }
     return tables
 
 
-def differences(live: dict[str, dict], expected: dict[str, dict]) -> list[str]:
+def differences(
+    live: dict[str, dict],
+    expected: dict[str, dict],
+    *,
+    live_views: set[str] | None = None,
+    expected_views: set[str] | None = None,
+) -> list[str]:
     """Names of shape differences. ``schema_migrations`` is the runner's table."""
     problems = []
+    if live_views is not None and expected_views is not None:
+        for name in sorted(expected_views - live_views):
+            problems.append(f"missing view {name}")
+        for name in sorted(live_views - expected_views):
+            problems.append(f"extra view {name}")
     live_names = set(live) - {"schema_migrations"}
     for name in sorted(set(expected) - live_names):
         problems.append(f"missing table {name}")
@@ -166,19 +182,22 @@ def fetch_live(cursor, schema: str) -> dict[str, dict]:
     """Column and index shape of one schema, from information_schema."""
     cursor.execute(
         """
-        SELECT TABLE_NAME AS table_name
+        SELECT TABLE_NAME AS table_name, TABLE_COLLATION AS table_collation
         FROM information_schema.TABLES
         WHERE TABLE_SCHEMA=%s AND TABLE_TYPE='BASE TABLE'
         """,
         (schema,),
     )
-    names = [row["table_name"] for row in cursor.fetchall()]
+    tables = list(cursor.fetchall())
+    names = [row["table_name"] for row in tables]
+    collations = {row["table_name"]: (row["table_collation"] or "").lower() for row in tables}
     live = {}
     for name in names:
         cursor.execute(
             """
             SELECT COLUMN_NAME AS name, COLUMN_TYPE AS column_type, IS_NULLABLE AS nullable,
-                   COLUMN_DEFAULT AS column_default, COLLATION_NAME AS collation
+                   COLUMN_DEFAULT AS column_default, COLLATION_NAME AS collation,
+                   EXTRA AS extra
             FROM information_schema.COLUMNS
             WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s
             ORDER BY ORDINAL_POSITION
@@ -192,6 +211,7 @@ def fetch_live(cursor, schema: str) -> dict[str, dict]:
                 "nullable": row["nullable"] == "YES",
                 "default": normalize_default(row["column_default"]),
                 "collation": (row["collation"] or "").lower(),
+                "auto_increment": "auto_increment" in (row["extra"] or "").lower(),
             }
             for row in cursor.fetchall()
         ]
@@ -211,8 +231,24 @@ def fetch_live(cursor, schema: str) -> dict[str, dict]:
                 {"name": row["name"], "unique": int(row["non_unique"]) == 0, "columns": []},
             )
             item["columns"].append(row["column_name"])
-        live[name] = {"columns": columns, "indexes": list(indexes.values())}
+        live[name] = {
+            "columns": columns,
+            "indexes": list(indexes.values()),
+            "collation": collations.get(name, ""),
+        }
     return live
+
+
+def fetch_views(cursor, schema: str) -> set[str]:
+    cursor.execute(
+        """
+        SELECT TABLE_NAME AS table_name
+        FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA=%s AND TABLE_TYPE='VIEW'
+        """,
+        (schema,),
+    )
+    return {row["table_name"] for row in cursor.fetchall()}
 
 
 def normalize_type(column_type: str) -> str:
@@ -257,6 +293,7 @@ def _column(line: str, table_collation: str) -> dict:
         "nullable": (match.group("nullability") or "").upper() != "NOT NULL",
         "default": normalize_default(default),
         "collation": collation.lower(),
+        "auto_increment": bool(match.group("auto")),
     }
 
 
@@ -278,10 +315,20 @@ def _table_diff(name: str, live: dict, expected: dict) -> list[str]:
         return problems
     for got, want in zip(live_cols, expected_cols):
         for field in ("type", "nullable", "default", "collation"):
-            if got[field] != want[field]:
+            if got.get(field) != want.get(field):
                 problems.append(
-                    f"{name}.{got['name']} {field} is {got[field]!r}, baseline has {want[field]!r}"
+                    f"{name}.{got['name']} {field} is {got.get(field)!r}, baseline has {want.get(field)!r}"
                 )
+        if bool(got.get("auto_increment")) != bool(want.get("auto_increment")):
+            problems.append(
+                f"{name}.{got['name']} auto_increment is {bool(got.get('auto_increment'))}, "
+                f"baseline has {bool(want.get('auto_increment'))}"
+            )
+    if (live.get("collation") or "") != (expected.get("collation") or ""):
+        problems.append(
+            f"{name} table collation is {live.get('collation')!r}, "
+            f"baseline has {expected.get('collation')!r}"
+        )
     live_idx = {item["name"]: item for item in live["indexes"]}
     expected_idx = {item["name"]: item for item in expected["indexes"]}
     for index in sorted(set(expected_idx) - set(live_idx)):

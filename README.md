@@ -15,7 +15,7 @@ Each app has its own `template.yaml`; deploy order between stacks is flexible.
 1. **Prerequisites:** [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html), **Python 3.12**, **Docker** (for PAXMiner images), AWS account access for Lambda (including Function URLs), CloudFormation, IAM, S3, ECR, EventBridge.
 2. **Configure deploy:** Copy [`.env.deploy.example`](.env.deploy.example) to `.env.deploy.test` or `.env.deploy.prod` and fill in values.
 3. **Deploy:** See **[docs/DEPLOY.md](docs/DEPLOY.md)** for bootstrap, `./deploy.sh`, GitHub Actions, OAuth, and secrets.
-4. **Migrate existing data:** **[docs/MIGRATION.md](docs/MIGRATION.md)** when moving from another MySQL host.
+4. **A new region's database:** the "New region database" section of **[docs/DEPLOY.md](docs/DEPLOY.md)**.
 
 ## Documentation
 
@@ -23,7 +23,7 @@ Each app has its own `template.yaml`; deploy order between stacks is flexible.
 |-----|----------|
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Env vars, OAuth tables, local & CI deploy, Lambda smoke tests, encryption, S3 |
 | [docs/COST.md](docs/COST.md) | **The stack must run $0/month on AWS** — free-tier allowances per service, and what to watch |
-| [docs/MIGRATION.md](docs/MIGRATION.md) | `migrate_data.py`, remap, images, artifacts |
+| [migration/README.md](migration/README.md) | Import from the old F3 Nation database, for a region that still has one |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Repo layout, schemas, DB map, QSignups permissions |
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | End-user help for each app |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Venvs, tests, Poetry / slackblast |

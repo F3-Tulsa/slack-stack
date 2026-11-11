@@ -64,8 +64,11 @@ def upsert_paxminer_slack_token(
             cur.execute(
                 f"""
                 INSERT INTO `{registry_schema}`.`region_config`
-                    (`region`, `slack_token`, `schema_name`, `active`)
-                VALUES (%s, %s, %s, 1)
+                    (`region`, `slack_token`, `schema_name`, `active`,
+                     `email_enabled`, `email_option_show`, `editing_locked`,
+                     `postie_format`, `strava_enabled`, `default_destination`,
+                     `post_achievements_to_ao`)
+                VALUES (%s, %s, %s, 1, 0, 0, 0, 1, 1, 'ao_channel', 0)
                 ON DUPLICATE KEY UPDATE
                     `slack_token` = VALUES(`slack_token`),
                     `schema_name` = VALUES(`schema_name`),

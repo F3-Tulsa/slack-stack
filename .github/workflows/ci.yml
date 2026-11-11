@@ -155,3 +155,34 @@ jobs:
           pip-audit -r qsignups/qsignups/requirements.txt
           pip-audit -r qsignups/weinkes/requirements.txt
           pip-audit -r migration/requirements.txt
+
+  schema-mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: fresh
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pfresh --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Empty schema, import, and second seed
+        env:
+          REQUIRE_MYSQL: "1"
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: "3306"
+          MYSQL_PASSWORD: fresh
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install pytest -r migration/requirements.txt
+          pytest -q migration/tests/test_schema_mysql.py
