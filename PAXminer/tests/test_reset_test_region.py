@@ -135,4 +135,4 @@ def test_table_counts_reads_each_table():
 
 def test_reset_reuses_seeder_test_only_guard():
     with pytest.raises(SystemExit, match="non-test regional"):
-        reset.seeder.assert_test_only("f3ttown_prod", "paxminer_test")
+        reset.seeder.assert_test_only("f3ttown_prod", "f3ttown_test")

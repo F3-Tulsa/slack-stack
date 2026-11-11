@@ -1,4 +1,8 @@
-"""DDL and seed helpers for the report scheduler (PAXMiner-owned tables)."""
+"""Seed and edit helpers for the report scheduler tables.
+
+db/migrations/0001_baseline.sql creates region_report_definitions and
+region_schedules; this module only reads and writes their rows.
+"""
 
 from __future__ import annotations
 
@@ -13,108 +17,6 @@ from scheduling import (
 
 LOG = logging.getLogger(__name__)
 
-DDL_REGION_REPORT_DEFINITIONS = """
-CREATE TABLE IF NOT EXISTS `{schema}`.`region_report_definitions` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `schema_name` varchar(45) NOT NULL,
-  `code` varchar(64) NOT NULL,
-  `name` varchar(120) NOT NULL,
-  `report_type` varchar(40) NOT NULL,
-  `is_builtin` tinyint NOT NULL DEFAULT 0,
-  `is_customized` tinyint NOT NULL DEFAULT 0,
-  `enabled` tinyint NOT NULL DEFAULT 1,
-  `kind` varchar(20) DEFAULT NULL,
-  `source` varchar(40) DEFAULT NULL,
-  `fields` json DEFAULT NULL,
-  `metric` varchar(40) DEFAULT NULL,
-  `aggregation` varchar(40) DEFAULT NULL,
-  `group_by` varchar(80) DEFAULT NULL,
-  `top_n` int DEFAULT NULL,
-  `time_window_type` varchar(20) DEFAULT NULL,
-  `window_days` int DEFAULT NULL,
-  `window_start` date DEFAULT NULL,
-  `window_end` date DEFAULT NULL,
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_rrd_schema_code` (`schema_name`, `code`),
-  KEY `idx_rrd_schema` (`schema_name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-"""
-
-DDL_REGION_SCHEDULES = """
-CREATE TABLE IF NOT EXISTS `{schema}`.`region_schedules` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `schema_name` varchar(45) NOT NULL,
-  `report_definition_id` int NOT NULL,
-  `destination_type` varchar(40) NOT NULL,
-  `destination_channels` json DEFAULT NULL,
-  `destination_users` json DEFAULT NULL,
-  `frequency_type` varchar(20) NOT NULL DEFAULT 'monthly',
-  `day_of_week` tinyint DEFAULT NULL,
-  `month_day_mode` varchar(20) DEFAULT 'first',
-  `day_of_month` tinyint DEFAULT NULL,
-  `time_of_day` time NOT NULL DEFAULT '07:00:00',
-  `custom_spec` json DEFAULT NULL,
-  `enabled` tinyint NOT NULL DEFAULT 1,
-  `last_run_on` date DEFAULT NULL,
-  `last_run_at` datetime DEFAULT NULL,
-  `last_run_status` varchar(20) DEFAULT NULL,
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_rs_schema` (`schema_name`),
-  KEY `idx_rs_enabled` (`enabled`),
-  CONSTRAINT `fk_rs_definition`
-    FOREIGN KEY (`report_definition_id`)
-    REFERENCES `{schema}`.`region_report_definitions` (`id`)
-    ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-"""
-
-
-def ensure_timezone_column(cur, pm_schema: str) -> bool:
-    """Add regions.timezone if missing. Returns True when a column was added."""
-    cur.execute(
-        """
-        SELECT COUNT(*) AS c FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA=%s AND TABLE_NAME='region_config' AND COLUMN_NAME='timezone'
-        """,
-        (pm_schema,),
-    )
-    if int(cur.fetchone()["c"]) > 0:
-        return False
-    cur.execute(
-        f"""
-        ALTER TABLE `{pm_schema}`.`region_config`
-        ADD COLUMN `timezone` varchar(45) NOT NULL DEFAULT %s
-        """,
-        (DEFAULT_TIMEZONE,),
-    )
-    LOG.info("Added %s.regions.timezone DEFAULT %s", pm_schema, DEFAULT_TIMEZONE)
-    return True
-
-
-def ensure_log_channel_column(cur, pm_schema: str) -> bool:
-    """Add nullable regions.log_channel (Slack channel ID) if missing."""
-    cur.execute(
-        """
-        SELECT COUNT(*) AS c FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA=%s AND TABLE_NAME='region_config' AND COLUMN_NAME='log_channel'
-        """,
-        (pm_schema,),
-    )
-    if int(cur.fetchone()["c"]) > 0:
-        return False
-    cur.execute(
-        f"""
-        ALTER TABLE `{pm_schema}`.`region_config`
-        ADD COLUMN `log_channel` varchar(100) NULL
-        """
-    )
-    LOG.info("Added %s.regions.log_channel", pm_schema)
-    return True
-
 
 def _table_exists(cur, schema: str, table: str) -> bool:
     cur.execute(
@@ -125,98 +27,6 @@ def _table_exists(cur, schema: str, table: str) -> bool:
         (schema, table),
     )
     return int(cur.fetchone()["c"]) > 0
-
-
-def ensure_scheduler_tables(cur, pm_schema: str) -> list[str]:
-    """Create scheduler tables if absent. Returns names of tables created this run."""
-    created: list[str] = []
-    for table, ddl in (
-        ("region_report_definitions", DDL_REGION_REPORT_DEFINITIONS),
-        ("region_schedules", DDL_REGION_SCHEDULES),
-    ):
-        existed = _table_exists(cur, pm_schema, table)
-        cur.execute(ddl.format(schema=pm_schema))
-        if existed:
-            LOG.info("Table %s.%s already present (DDL not needed)", pm_schema, table)
-        else:
-            LOG.info("Created table %s.%s", pm_schema, table)
-            created.append(table)
-    return created
-
-
-def ensure_is_customized_column(cur, pm_schema: str) -> bool:
-    """Add region_report_definitions.is_customized if missing. Returns True when added."""
-    if not _table_exists(cur, pm_schema, "region_report_definitions"):
-        return False
-    cur.execute(
-        """
-        SELECT COUNT(*) AS c FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA=%s AND TABLE_NAME='region_report_definitions'
-          AND COLUMN_NAME='is_customized'
-        """,
-        (pm_schema,),
-    )
-    if int(cur.fetchone()["c"]) > 0:
-        return False
-    cur.execute(
-        f"""
-        ALTER TABLE `{pm_schema}`.`region_report_definitions`
-        ADD COLUMN `is_customized` tinyint NOT NULL DEFAULT 0
-          AFTER `is_builtin`
-        """
-    )
-    LOG.info("Added %s.region_report_definitions.is_customized", pm_schema)
-    return True
-
-
-def ensure_report_enabled_column(cur, pm_schema: str) -> bool:
-    """Add region_report_definitions.enabled if missing. Returns True when added."""
-    if not _table_exists(cur, pm_schema, "region_report_definitions"):
-        return False
-    cur.execute(
-        """
-        SELECT COUNT(*) AS c FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA=%s AND TABLE_NAME='region_report_definitions'
-          AND COLUMN_NAME='enabled'
-        """,
-        (pm_schema,),
-    )
-    if int(cur.fetchone()["c"]) > 0:
-        return False
-    cur.execute(
-        f"""
-        ALTER TABLE `{pm_schema}`.`region_report_definitions`
-        ADD COLUMN `enabled` tinyint NOT NULL DEFAULT 1
-          AFTER `is_customized`
-        """
-    )
-    LOG.info("Added %s.region_report_definitions.enabled", pm_schema)
-    return True
-
-
-def ensure_last_run_at_column(cur, pm_schema: str) -> bool:
-    """Add region_schedules.last_run_at if missing. Returns True when added."""
-    if not _table_exists(cur, pm_schema, "region_schedules"):
-        return False
-    cur.execute(
-        """
-        SELECT COUNT(*) AS c FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA=%s AND TABLE_NAME='region_schedules'
-          AND COLUMN_NAME='last_run_at'
-        """,
-        (pm_schema,),
-    )
-    if int(cur.fetchone()["c"]) > 0:
-        return False
-    cur.execute(
-        f"""
-        ALTER TABLE `{pm_schema}`.`region_schedules`
-        ADD COLUMN `last_run_at` datetime DEFAULT NULL
-          AFTER `last_run_on`
-        """
-    )
-    LOG.info("Added %s.region_schedules.last_run_at", pm_schema)
-    return True
 
 
 def upsert_builtin_definitions(
@@ -517,9 +327,8 @@ def backfill_award_achievements_schedules(cur, pm_schema: str) -> dict[str, int]
 def seed_all_regions(cur, pm_schema: str) -> dict[str, int]:
     """Seed builtins + default schedules for every active region. Returns counts.
 
-    Assumes the caller has already run ensure_timezone_column and
-    ensure_scheduler_tables (the scheduler migration phase does this and reports
-    the results in its receipt), so those DDL steps are not repeated here.
+    The tables and region_config.timezone come from db/migrations, so this
+    function creates nothing.
     """
     cur.execute(f"SELECT * FROM `{pm_schema}`.`region_config` WHERE active = 1")
     regions = list(cur.fetchall() or [])

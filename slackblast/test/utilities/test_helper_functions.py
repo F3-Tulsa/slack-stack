@@ -288,33 +288,8 @@ def test_update_local_region_records_invalidates_one_or_all():
 @patch("utilities.helper_functions.FixedSQLAlchemyOAuthStateStore")
 @patch("utilities.helper_functions.SQLAlchemyInstallationStore")
 @patch("utilities.helper_functions.get_engine")
-def test_get_oauth_flow_skips_create_tables_when_disabled(
-    _mock_engine, mock_inst_cls, mock_state_cls
-):
-    installation_store = MagicMock()
-    state_store = MagicMock()
-    mock_inst_cls.return_value = installation_store
-    mock_state_cls.return_value = state_store
-    env = {
-        "ENV_SLACK_CLIENT_ID": "test-client-id",
-        "ENV_SLACK_CLIENT_SECRET": "test-secret",
-        "ENV_SLACK_SCOPES": "chat:write,commands",
-        "CREATE_OAUTH_TABLES": "false",
-    }
-    with patch.dict(os.environ, env, clear=False):
-        flow = get_oauth_flow()
-    assert flow is not None
-    installation_store.create_tables.assert_not_called()
-    state_store.create_tables.assert_not_called()
-
-
-@patch("utilities.helper_functions.LOCAL_DEVELOPMENT", False)
-@patch("utilities.helper_functions.FixedSQLAlchemyOAuthStateStore")
-@patch("utilities.helper_functions.SQLAlchemyInstallationStore")
-@patch("utilities.helper_functions.get_engine")
-def test_get_oauth_flow_calls_create_tables_when_enabled(
-    _mock_engine, mock_inst_cls, mock_state_cls
-):
+def test_get_oauth_flow_never_creates_tables(_mock_engine, mock_inst_cls, mock_state_cls):
+    """db/migrations creates the OAuth tables; the old CREATE_OAUTH_TABLES switch is gone."""
     installation_store = MagicMock()
     state_store = MagicMock()
     mock_inst_cls.return_value = installation_store
@@ -328,8 +303,8 @@ def test_get_oauth_flow_calls_create_tables_when_enabled(
     with patch.dict(os.environ, env, clear=False):
         flow = get_oauth_flow()
     assert flow is not None
-    installation_store.create_tables.assert_called_once()
-    state_store.create_tables.assert_called_once()
+    installation_store.create_tables.assert_not_called()
+    state_store.create_tables.assert_not_called()
 
 
 @patch("utilities.helper_functions.get_engine")

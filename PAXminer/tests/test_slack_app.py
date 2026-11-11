@@ -203,11 +203,10 @@ def test_config_submit_clear_on_success():
         with patch("slack_app._region_context_from_body", return_value=("T1", "f3tulsa_test", region)):
             with patch("slack_app._parse_modal_values", return_value=values):
                 with patch("slack_app.connect_from_env") as mock_conn:
-                    with patch("schedule_schema.ensure_log_channel_column", return_value=False):
-                        mock_cur = MagicMock()
-                        mock_conn.return_value.cursor.return_value.__enter__.return_value = mock_cur
-                        mock_conn.return_value.cursor.return_value.__exit__.return_value = False
-                        handle_config_submit(ack, body, client, logger)
+                    mock_cur = MagicMock()
+                    mock_conn.return_value.cursor.return_value.__enter__.return_value = mock_cur
+                    mock_conn.return_value.cursor.return_value.__exit__.return_value = False
+                    handle_config_submit(ack, body, client, logger)
 
     ack.assert_called_once_with(response_action="clear")
 
@@ -582,14 +581,57 @@ def test_cosmetic_edit_does_not_mint_version():
                         with patch("slack_app._load_achievement", return_value=existing):
                             with patch("slack_app._load_achievements", return_value=[]):
                                 with patch("slack_app.earliest_beatdown_date", return_value="2025-01-01"):
-                                    with patch("achievements.range.ensure_achievement_range_columns"):
-                                        with patch("achievements.versions.update_current_range"):
-                                            with patch("achievements.versions.supersede_and_insert") as mint:
-                                                handle_achievement_edit_submit(ack, body, MagicMock(), MagicMock())
+                                    with patch("achievements.versions.update_current_range"):
+                                        with patch("achievements.versions.supersede_and_insert") as mint:
+                                            handle_achievement_edit_submit(ack, body, MagicMock(), MagicMock())
     mint.assert_not_called()
     update_sql = " ".join(str(c) for c in mock_cur.execute.call_args_list)
     assert "SET name=%s, description=%s, verb=%s, emoji=%s" in update_sql
     assert "enabled=%s" not in update_sql
+
+
+def test_duplicate_code_on_insert_reports_code_already_in_use():
+    """A unique-key race (MySQL 1062) shows the same error as the pre-check."""
+    from slack_app import handle_achievement_edit_submit
+
+    ack = MagicMock()
+    body = {
+        "user": {"id": "U1"},
+        "view": {
+            "private_metadata": '{"team_id":"T1","regional_schema":"f3test"}',
+            "state": {"values": {}},
+        },
+    }
+    values = {
+        "name": "Six Pack",
+        "description": "d",
+        "verb": "v",
+        "code": "six_pack",
+        "metric": "posts",
+        "activity_filter": {"include": ["beatdown"], "exclude": []},
+        "period": "week",
+        "threshold": 6,
+        "enabled": 1,
+        "range_mode": "all_attendance",
+    }
+    duplicate = Exception(1062, "Duplicate entry 'six_pack' for key 'uniq_code'")
+    with patch("slack_app.is_slack_admin", return_value=True):
+        with patch("slack_app._region_context_from_body", return_value=("T1", "f3test", {"region": "t"})):
+            with patch("slack_app._parse_achievement_form", return_value=values):
+                with patch("slack_app._validate_achievement", return_value={}):
+                    with patch("slack_app.connect_from_env") as mock_conn:
+                        mock_cur = MagicMock()
+                        mock_cur.fetchone.return_value = None
+                        mock_conn.return_value.cursor.return_value.__enter__.return_value = mock_cur
+                        mock_conn.return_value.cursor.return_value.__exit__.return_value = False
+                        with patch("slack_app.earliest_beatdown_date", return_value=None):
+                            with patch("slack_app._add_one_achievement", side_effect=duplicate):
+                                handle_achievement_edit_submit(ack, body, MagicMock(), MagicMock())
+    ack.assert_called_once_with(
+        response_action="errors",
+        errors={"code": "Code already in use"},
+    )
+    mock_conn.return_value.rollback.assert_called_once()
 
 
 def _achievement_edit_submit_body(
@@ -663,15 +705,14 @@ def test_name_only_save_without_activity_picker_preserves_filter():
                     with patch("slack_app._load_achievement", return_value=existing):
                         with patch("slack_app._load_achievements", return_value=[]):
                             with patch("slack_app.earliest_beatdown_date", return_value="2025-01-01"):
-                                with patch("achievements.range.ensure_achievement_range_columns"):
-                                    with patch("achievements.versions.update_current_range"):
-                                        with patch("achievements.versions.supersede_and_insert") as mint:
-                                            with patch(
-                                                "slack_schedule.queue_achievement_backfill"
-                                            ) as queue:
-                                                handle_achievement_edit_submit(
-                                                    ack, body, MagicMock(), MagicMock()
-                                                )
+                                with patch("achievements.versions.update_current_range"):
+                                    with patch("achievements.versions.supersede_and_insert") as mint:
+                                        with patch(
+                                            "slack_schedule.queue_achievement_backfill"
+                                        ) as queue:
+                                            handle_achievement_edit_submit(
+                                                ack, body, MagicMock(), MagicMock()
+                                            )
     mint.assert_not_called()
     queue.assert_not_called()
 
@@ -692,20 +733,19 @@ def test_clearing_activity_chips_stores_any_and_queues_reeval():
                     with patch("slack_app._load_achievement", return_value=existing):
                         with patch("slack_app._load_achievements", return_value=[]):
                             with patch("slack_app.earliest_beatdown_date", return_value="2025-01-01"):
-                                with patch("achievements.range.ensure_achievement_range_columns"):
+                                with patch(
+                                    "achievements.range.try_acquire_reeval_lock",
+                                    return_value=(True, None),
+                                ):
                                     with patch(
-                                        "achievements.range.try_acquire_reeval_lock",
-                                        return_value=(True, None),
-                                    ):
+                                        "slack_schedule.queue_achievement_backfill"
+                                    ) as queue:
                                         with patch(
-                                            "slack_schedule.queue_achievement_backfill"
-                                        ) as queue:
-                                            with patch(
-                                                "achievements.versions.supersede_and_insert"
-                                            ) as mint:
-                                                handle_achievement_edit_submit(
-                                                    ack, body, MagicMock(), MagicMock()
-                                                )
+                                            "achievements.versions.supersede_and_insert"
+                                        ) as mint:
+                                            handle_achievement_edit_submit(
+                                                ack, body, MagicMock(), MagicMock()
+                                            )
     mint.assert_called_once()
     assert mint.call_args.kwargs["activity_filter"] == {"include": [], "exclude": []}
     queue.assert_called_once()
@@ -731,11 +771,10 @@ def test_overlapping_include_exclude_acks_form_error():
                 mock_conn.return_value.cursor.return_value.__exit__.return_value = False
                 with patch("slack_app._load_achievement", return_value=existing):
                     with patch("slack_app.earliest_beatdown_date", return_value="2025-01-01"):
-                        with patch("achievements.range.ensure_achievement_range_columns"):
-                            with patch("achievements.versions.supersede_and_insert") as mint:
-                                handle_achievement_edit_submit(
-                                    ack, body, MagicMock(), MagicMock()
-                                )
+                        with patch("achievements.versions.supersede_and_insert") as mint:
+                            handle_achievement_edit_submit(
+                                ack, body, MagicMock(), MagicMock()
+                            )
     mint.assert_not_called()
     ack.assert_called_once()
     assert ack.call_args.kwargs["response_action"] == "errors"
@@ -758,14 +797,13 @@ def test_stored_overlap_without_pickers_saves():
                 with patch("slack_app._load_achievement", return_value=existing):
                     with patch("slack_app._load_achievements", return_value=[]):
                         with patch("slack_app.earliest_beatdown_date", return_value="2025-01-01"):
-                            with patch("achievements.range.ensure_achievement_range_columns"):
-                                with patch("achievements.versions.update_current_range"):
-                                    with patch("achievements.versions.supersede_and_insert") as mint:
-                                        with patch("slack_schedule.queue_achievement_backfill"):
-                                            with patch("slack_app._refresh_achievements_list"):
-                                                handle_achievement_edit_submit(
-                                                    ack, body, MagicMock(), MagicMock()
-                                                )
+                            with patch("achievements.versions.update_current_range"):
+                                with patch("achievements.versions.supersede_and_insert") as mint:
+                                    with patch("slack_schedule.queue_achievement_backfill"):
+                                        with patch("slack_app._refresh_achievements_list"):
+                                            handle_achievement_edit_submit(
+                                                ack, body, MagicMock(), MagicMock()
+                                            )
     mint.assert_not_called()
     assert ack.call_args.kwargs.get("response_action") != "errors"
 
@@ -792,14 +830,13 @@ def test_name_only_save_keeps_catalog_dropped_exclude():
                 with patch("slack_app._load_achievement", return_value=existing):
                     with patch("slack_app._load_achievements", return_value=[]):
                         with patch("slack_app.earliest_beatdown_date", return_value="2025-01-01"):
-                            with patch("achievements.range.ensure_achievement_range_columns"):
-                                with patch("achievements.versions.update_current_range"):
-                                    with patch("achievements.versions.supersede_and_insert") as mint:
-                                        with patch("slack_schedule.queue_achievement_backfill") as queue:
-                                            with patch("slack_app._refresh_achievements_list"):
-                                                handle_achievement_edit_submit(
-                                                    ack, body, MagicMock(), MagicMock()
-                                                )
+                            with patch("achievements.versions.update_current_range"):
+                                with patch("achievements.versions.supersede_and_insert") as mint:
+                                    with patch("slack_schedule.queue_achievement_backfill") as queue:
+                                        with patch("slack_app._refresh_achievements_list"):
+                                            handle_achievement_edit_submit(
+                                                ack, body, MagicMock(), MagicMock()
+                                            )
     mint.assert_not_called()
     queue.assert_not_called()
     assert ack.call_args.kwargs.get("response_action") != "errors"
@@ -891,20 +928,19 @@ def test_parameter_edit_mints_version_and_can_queue_backfill():
                         with patch("slack_app._load_achievement", return_value=existing):
                             with patch("slack_app._load_achievements", return_value=[]):
                                 with patch("slack_app.earliest_beatdown_date", return_value="2025-01-01"):
-                                    with patch("achievements.range.ensure_achievement_range_columns"):
+                                    with patch(
+                                        "achievements.range.try_acquire_reeval_lock",
+                                        return_value=(True, None),
+                                    ):
                                         with patch(
-                                            "achievements.range.try_acquire_reeval_lock",
-                                            return_value=(True, None),
-                                        ):
+                                            "slack_schedule.queue_achievement_backfill"
+                                        ) as queue:
                                             with patch(
-                                                "slack_schedule.queue_achievement_backfill"
-                                            ) as queue:
-                                                with patch(
-                                                    "achievements.versions.supersede_and_insert"
-                                                ) as mint:
-                                                    handle_achievement_edit_submit(
-                                                        ack, body, MagicMock(), MagicMock()
-                                                    )
+                                                "achievements.versions.supersede_and_insert"
+                                            ) as mint:
+                                                handle_achievement_edit_submit(
+                                                    ack, body, MagicMock(), MagicMock()
+                                                )
     mint.assert_called_once()
     assert mint.call_args.kwargs["effective_from"] == "2026-03-01"
     assert mint.call_args.kwargs["range_mode"] == "from_created"
@@ -967,23 +1003,22 @@ def test_range_only_all_attendance_updates_current_and_queues():
                         with patch("slack_app._load_achievement", return_value=existing):
                             with patch("slack_app._load_achievements", return_value=[]):
                                 with patch("slack_app.earliest_beatdown_date", return_value="2025-01-01"):
-                                    with patch("achievements.range.ensure_achievement_range_columns"):
+                                    with patch(
+                                        "achievements.range.try_acquire_reeval_lock",
+                                        return_value=(True, None),
+                                    ):
                                         with patch(
-                                            "achievements.range.try_acquire_reeval_lock",
-                                            return_value=(True, None),
-                                        ):
+                                            "slack_schedule.queue_achievement_backfill"
+                                        ) as queue:
                                             with patch(
-                                                "slack_schedule.queue_achievement_backfill"
-                                            ) as queue:
+                                                "achievements.versions.supersede_and_insert"
+                                            ) as mint:
                                                 with patch(
-                                                    "achievements.versions.supersede_and_insert"
-                                                ) as mint:
-                                                    with patch(
-                                                        "achievements.versions.update_current_range"
-                                                    ) as upd:
-                                                        handle_achievement_edit_submit(
-                                                            ack, body, MagicMock(), MagicMock()
-                                                        )
+                                                    "achievements.versions.update_current_range"
+                                                ) as upd:
+                                                    handle_achievement_edit_submit(
+                                                        ack, body, MagicMock(), MagicMock()
+                                                    )
     mint.assert_not_called()
     upd.assert_called_once()
     assert upd.call_args.kwargs["effective_from"] is None
@@ -1047,15 +1082,14 @@ def test_description_only_does_not_move_since_rules_changed():
                         with patch("slack_app._load_achievement", return_value=existing):
                             with patch("slack_app._load_achievements", return_value=[]):
                                 with patch("slack_app.earliest_beatdown_date", return_value="2025-01-01"):
-                                    with patch("achievements.range.ensure_achievement_range_columns"):
-                                        with patch("achievements.versions.update_current_range") as upd:
-                                            with patch("achievements.versions.supersede_and_insert") as mint:
-                                                with patch(
-                                                    "slack_schedule.queue_achievement_backfill"
-                                                ) as queue:
-                                                    handle_achievement_edit_submit(
-                                                        ack, body, MagicMock(), MagicMock()
-                                                    )
+                                    with patch("achievements.versions.update_current_range") as upd:
+                                        with patch("achievements.versions.supersede_and_insert") as mint:
+                                            with patch(
+                                                "slack_schedule.queue_achievement_backfill"
+                                            ) as queue:
+                                                handle_achievement_edit_submit(
+                                                    ack, body, MagicMock(), MagicMock()
+                                                )
     mint.assert_not_called()
     queue.assert_not_called()
     assert upd.call_args.kwargs["effective_from"] == "2026-04-01"
@@ -1114,15 +1148,14 @@ def test_narrowing_range_pushes_confirm_modal():
                         mock_conn.return_value.cursor.return_value.__exit__.return_value = False
                         with patch("slack_app._load_achievement", return_value=existing):
                             with patch("slack_app.earliest_beatdown_date", return_value="2025-01-01"):
-                                with patch("achievements.range.ensure_achievement_range_columns"):
-                                    with patch(
-                                        "achievements.range.count_awards_outside_range",
-                                        return_value=(5, 2),
-                                    ):
-                                        with patch("achievements.versions.supersede_and_insert") as mint:
-                                            handle_achievement_edit_submit(
-                                                ack, body, MagicMock(), MagicMock()
-                                            )
+                                with patch(
+                                    "achievements.range.count_awards_outside_range",
+                                    return_value=(5, 2),
+                                ):
+                                    with patch("achievements.versions.supersede_and_insert") as mint:
+                                        handle_achievement_edit_submit(
+                                            ack, body, MagicMock(), MagicMock()
+                                        )
     mint.assert_not_called()
     assert ack.call_args.kwargs["response_action"] == "push"
     assert ack.call_args.kwargs["view"]["callback_id"] == "paxminer-achievement-range-confirm-id"
@@ -1190,27 +1223,26 @@ def test_range_confirm_second_submit_saves_without_reprompt():
                 with patch("slack_app._load_achievement", return_value=existing):
                     with patch("slack_app._load_achievements", return_value=[]):
                         with patch("slack_app.earliest_beatdown_date", return_value="2025-01-01"):
-                            with patch("achievements.range.ensure_achievement_range_columns"):
+                            with patch(
+                                "achievements.range.count_awards_outside_range",
+                                return_value=(5, 2),
+                            ) as count:
                                 with patch(
-                                    "achievements.range.count_awards_outside_range",
-                                    return_value=(5, 2),
-                                ) as count:
+                                    "achievements.range.try_acquire_reeval_lock",
+                                    return_value=(True, None),
+                                ):
                                     with patch(
-                                        "achievements.range.try_acquire_reeval_lock",
-                                        return_value=(True, None),
+                                        "slack_schedule.queue_achievement_backfill"
                                     ):
                                         with patch(
-                                            "slack_schedule.queue_achievement_backfill"
-                                        ):
+                                            "achievements.versions.supersede_and_insert"
+                                        ) as mint:
                                             with patch(
-                                                "achievements.versions.supersede_and_insert"
-                                            ) as mint:
-                                                with patch(
-                                                    "achievements.versions.update_current_range"
-                                                ) as upd:
-                                                    handle_achievement_edit_submit(
-                                                        ack, body, MagicMock(), MagicMock()
-                                                    )
+                                                "achievements.versions.update_current_range"
+                                            ) as upd:
+                                                handle_achievement_edit_submit(
+                                                    ack, body, MagicMock(), MagicMock()
+                                                )
     count.assert_not_called()
     mint.assert_not_called()
     upd.assert_called_once()
@@ -1305,14 +1337,13 @@ def test_backfill_button_queues_worker():
                 mock_cur = MagicMock()
                 mock_conn.return_value.cursor.return_value.__enter__.return_value = mock_cur
                 mock_conn.return_value.cursor.return_value.__exit__.return_value = False
-                with patch("achievements.range.ensure_achievement_range_columns"):
-                    with patch(
-                        "achievements.range.try_acquire_reeval_lock",
-                        return_value=(True, None),
-                    ):
-                        with patch("slack_schedule.queue_achievement_backfill") as queue:
-                            with patch("slack_app._refresh_achievements_list"):
-                                handle_backfill_achievement(ack, body, MagicMock(), MagicMock())
+                with patch(
+                    "achievements.range.try_acquire_reeval_lock",
+                    return_value=(True, None),
+                ):
+                    with patch("slack_schedule.queue_achievement_backfill") as queue:
+                        with patch("slack_app._refresh_achievements_list"):
+                            handle_backfill_achievement(ack, body, MagicMock(), MagicMock())
     ack.assert_called_once_with()
     queue.assert_called_once()
     assert queue.call_args.kwargs["achievement_id"] == 4
@@ -1344,14 +1375,13 @@ def test_backfill_button_rejects_in_flight_lock():
                 mock_cur = MagicMock()
                 mock_conn.return_value.cursor.return_value.__enter__.return_value = mock_cur
                 mock_conn.return_value.cursor.return_value.__exit__.return_value = False
-                with patch("achievements.range.ensure_achievement_range_columns"):
-                    with patch(
-                        "achievements.range.try_acquire_reeval_lock",
-                        return_value=(False, "A re-evaluate is already running."),
-                    ):
-                        with patch("slack_schedule.queue_achievement_backfill") as queue:
-                            with patch("slack_app._refresh_achievements_list") as refresh:
-                                handle_backfill_achievement(ack, body, MagicMock(), MagicMock())
+                with patch(
+                    "achievements.range.try_acquire_reeval_lock",
+                    return_value=(False, "A re-evaluate is already running."),
+                ):
+                    with patch("slack_schedule.queue_achievement_backfill") as queue:
+                        with patch("slack_app._refresh_achievements_list") as refresh:
+                            handle_backfill_achievement(ack, body, MagicMock(), MagicMock())
     queue.assert_not_called()
     assert "already running" in refresh.call_args.args[4]
 
@@ -1378,20 +1408,19 @@ def test_backfill_button_clears_lock_when_queue_fails():
                 mock_cur = MagicMock()
                 mock_conn.return_value.cursor.return_value.__enter__.return_value = mock_cur
                 mock_conn.return_value.cursor.return_value.__exit__.return_value = False
-                with patch("achievements.range.ensure_achievement_range_columns"):
+                with patch(
+                    "achievements.range.try_acquire_reeval_lock",
+                    return_value=(True, None),
+                ):
                     with patch(
-                        "achievements.range.try_acquire_reeval_lock",
-                        return_value=(True, None),
+                        "slack_schedule.queue_achievement_backfill",
+                        side_effect=RuntimeError("invoke failed"),
                     ):
-                        with patch(
-                            "slack_schedule.queue_achievement_backfill",
-                            side_effect=RuntimeError("invoke failed"),
-                        ):
-                            with patch("achievements.range.clear_reeval_lock") as unlock:
-                                with patch("slack_app._refresh_achievements_list") as refresh:
-                                    handle_backfill_achievement(
-                                        ack, body, MagicMock(), MagicMock()
-                                    )
+                        with patch("achievements.range.clear_reeval_lock") as unlock:
+                            with patch("slack_app._refresh_achievements_list") as refresh:
+                                handle_backfill_achievement(
+                                    ack, body, MagicMock(), MagicMock()
+                                )
     unlock.assert_called_once()
     assert unlock.call_args.args[2] == 4
     assert "Could not queue" in refresh.call_args.args[4]
@@ -1420,8 +1449,8 @@ def test_backfill_does_not_clear_lock_before_acquire():
                 mock_conn.return_value.cursor.return_value.__enter__.return_value = mock_cur
                 mock_conn.return_value.cursor.return_value.__exit__.return_value = False
                 with patch(
-                    "achievements.range.ensure_achievement_range_columns",
-                    side_effect=RuntimeError("cannot ALTER"),
+                    "achievements.range.try_acquire_reeval_lock",
+                    side_effect=RuntimeError("lock query failed"),
                 ):
                     with patch("achievements.range.clear_reeval_lock") as unlock:
                         with patch("slack_app._refresh_achievements_list"):
@@ -1652,24 +1681,23 @@ def test_restore_defaults_adds_like_new_and_queues_reeval():
                 mock_conn.return_value.cursor.return_value.__enter__.return_value = mock_cur
                 mock_conn.return_value.cursor.return_value.__exit__.return_value = False
                 with patch("slack_app.earliest_beatdown_date", return_value="2025-01-01"):
-                    with patch("achievements.range.ensure_achievement_range_columns"):
-                        with patch(
-                            "achievements.range.try_acquire_reeval_lock",
-                            return_value=(True, None),
-                        ):
-                            with patch("achievements.versions.insert_version") as insert_ver:
+                    with patch(
+                        "achievements.range.try_acquire_reeval_lock",
+                        return_value=(True, None),
+                    ):
+                        with patch("achievements.versions.insert_version") as insert_ver:
+                            with patch(
+                                "slack_schedule.queue_achievement_backfill"
+                            ) as queue:
                                 with patch(
-                                    "slack_schedule.queue_achievement_backfill"
-                                ) as queue:
+                                    "slack_app._post_achievement_admin_notice"
+                                ) as notice:
                                     with patch(
-                                        "slack_app._post_achievement_admin_notice"
-                                    ) as notice:
-                                        with patch(
-                                            "slack_app._refresh_achievements_list"
-                                        ) as refresh:
-                                            handle_restore_achievements(
-                                                ack, body, client, MagicMock()
-                                            )
+                                        "slack_app._refresh_achievements_list"
+                                    ) as refresh:
+                                        handle_restore_achievements(
+                                            ack, body, client, MagicMock()
+                                        )
     assert insert_ver.call_count == len(seeds)
     by_code = {call.kwargs["code"]: call.kwargs for call in insert_ver.call_args_list}
     for seed in seeds:
@@ -1724,15 +1752,14 @@ def test_restore_defaults_skips_existing_codes():
                 mock_conn.return_value.cursor.return_value.__exit__.return_value = False
                 with patch("slack_app.load_achievement_defaults", return_value=seeds):
                     with patch("slack_app.earliest_beatdown_date", return_value="2025-01-01"):
-                        with patch("achievements.range.ensure_achievement_range_columns"):
-                            with patch("achievements.versions.insert_version") as insert_ver:
-                                with patch(
-                                    "slack_schedule.queue_achievement_backfill"
-                                ) as queue:
-                                    with patch("slack_app._refresh_achievements_list"):
-                                        handle_restore_achievements(
-                                            ack, body, MagicMock(), MagicMock()
-                                        )
+                        with patch("achievements.versions.insert_version") as insert_ver:
+                            with patch(
+                                "slack_schedule.queue_achievement_backfill"
+                            ) as queue:
+                                with patch("slack_app._refresh_achievements_list"):
+                                    handle_restore_achievements(
+                                        ack, body, MagicMock(), MagicMock()
+                                    )
     insert_ver.assert_not_called()
     queue.assert_not_called()
 

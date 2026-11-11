@@ -2,7 +2,7 @@
 
 For deploy, env vars, and OAuth setup see **[DEPLOY.md](DEPLOY.md)**.
 
-Shared changes go to the F3Nation-Community repository's `main` once that repository exists. A region's fork deploys its own `test` and `prod`. Until then, open pull requests on this repository. There is no clone URL here yet, because that repository does not exist.
+Open pull requests on `F3-Tulsa/slack-stack`, against `test`. Another region that wants to run slack-stack forks this repository and deploys its own `test` and `prod` from the fork (see the new-region section of [DEPLOY.md](DEPLOY.md)).
 
 **Packaging on AWS:** **PAXminer** deploys as **container images** (Docker builds pushed to ECR). **slackblast** and **qsignups** use SAM **zip** packaging (CI uses `--use-container` on `sam build` for Linux-compatible native wheels).
 

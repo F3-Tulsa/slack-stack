@@ -632,9 +632,10 @@ def test_rehearsal_file_reads_target_prefix(tmp_path):
 
 def test_rehearsed_baseline_names_every_table_and_view():
     migrations = discover(_REPO / "db" / "migrations")
-    assert [item.version for item in migrations] == [1, 2]
+    assert [item.version for item in migrations] == [1, 2, 3]
     assert migrations[0].name == "baseline"
     assert migrations[1].name == "region_flag_defaults"
+    assert migrations[2].name == "achievement_keys"
     sql = migrations[0].sql
     assert "DEFINER=" not in sql
     assert "f3ttown_" not in sql

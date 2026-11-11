@@ -7,14 +7,14 @@ This document covers first-time setup, environment variables, Slack OAuth, datab
 
 ## New region database
 
-A new region starts from an empty schema. `db/fresh_install.py` refuses `f3ttown_test` and `f3ttown_prod`. The baseline already creates the OAuth tables. A prod stage passes `--allow-prod` to `db/migrate.py` and `db/fresh_install.py`.
+A new region starts from an empty schema, `{F3_REGION_NAME}_{STAGE}` (for example `yourregion_test`). `db/fresh_install.py` refuses `f3ttown_test` and `f3ttown_prod`, the live schemas of the region this repository came from. The baseline already creates the OAuth tables. A prod stage passes `--allow-prod` to `db/migrate.py` and `db/fresh_install.py`.
 
 1. On the region's own fork, `./deploy.sh --env <stage> --build-only --setup-github`. This creates the GitHub environment and does not deploy. A plain `./deploy.sh --setup-github` deploys and smokes first, and the smoke fails when the schema does not exist yet.
-2. `python db/migrate.py --env-file .env.deploy.<stage> --to 1` creates the empty baseline. A region coming from the old F3 Nation database then runs `python migration/legacy_import.py --env-file .env.deploy.<stage>`. See [migration/README.md](../migration/README.md). That importer is tested on a schema-only fixture, not a live national database.
+2. `pip install -r db/requirements.txt`, then `python db/migrate.py --env-file .env.deploy.<stage> --to 1` creates the empty baseline. A region coming from the old F3 Nation database then runs `python migration/legacy_import.py --env-file .env.deploy.<stage> --source-schema <old regional schema> --qsignups-schema <old qsignups schema> --team-id <slack team> --target-schema <region>_<stage>`. See [migration/README.md](../migration/README.md). That importer is tested on a schema-only fixture, not a live national database.
 3. `python db/fresh_install.py --env-file .env.deploy.<stage>` seeds defaults and applies later files. `F3_REGION_SLACK_TEAM_ID` is required. `--timezone` overrides `F3_TIMEZONE`, which otherwise defaults to `America/Chicago`.
 4. Deploy, then create the Slack apps.
 
-Sections later in this document that mention `migrate_data.py --bootstrap-only` or `SB_CREATE_OAUTH_TABLES` and `QS_CREATE_OAUTH_TABLES` are Tulsa history. A new region does not use them.
+Sections later in this document that mention `migrate_data.py --bootstrap-only` are Tulsa history. A new region does not use them.
 
 ## Prerequisites
 
@@ -66,7 +66,7 @@ All deploy configuration is driven by environment variables. Copy [`.env.deploy.
 
 ### PAXMiner and Slack
 
-**PAXMiner** uses **`PM_SLACK_TOKEN`** and **`PM_SLACK_SIGNING_SECRET`**. Signing secret and slash/interactivity traffic go to the lightweight **SlackFunction** (Bolt, kept warm every 5 minutes). Heavy workers (sync/achievements/schedule) get the bot token; on **Lambda cold start** they encrypt with **`DB_ENCRYPTION_KEY`** and **upsert** into **`paxminer_<stage>.regions`**. Achievements webhook auth uses **`PM_ACHIEVEMENTS_WEBHOOK_SECRET`** on both PAXMiner and slackblast Lambdas.
+**PAXMiner** uses **`PM_SLACK_TOKEN`** and **`PM_SLACK_SIGNING_SECRET`**. Signing secret and slash/interactivity traffic go to the lightweight **SlackFunction** (Bolt, kept warm every 5 minutes). Heavy workers (sync/achievements/schedule) get the bot token; on **Lambda cold start** they encrypt with **`DB_ENCRYPTION_KEY`** and **upsert** into **`region_config`** in the region schema. Achievements webhook auth uses **`PM_ACHIEVEMENTS_WEBHOOK_SECRET`** on both PAXMiner and slackblast Lambdas.
 
 **slackblast** (`SB_*`) and **qsignups** (`QS_*`) use their own Slack (and Google) env vars as below.
 
@@ -85,7 +85,6 @@ All deploy configuration is driven by environment variables. Copy [`.env.deploy.
 |----------|-------------|
 | `SB_STRAVA_CLIENT_ID` | Strava API client ID (omit to disable Strava in slackblast; SAM uses template defaults) |
 | `SB_STRAVA_CLIENT_SECRET` | Strava API client secret |
-| `SB_CREATE_OAUTH_TABLES` | Set to `true` for one deploy to run OAuth `create_tables()` DDL on cold start; omit or `false` normally (see **Slack OAuth (database)**) |
 
 ### Required (qsignups)
 
@@ -102,11 +101,10 @@ All deploy configuration is driven by environment variables. Copy [`.env.deploy.
 |----------|-------------|
 | `QS_GOOGLE_CLIENT_ID` | Google Calendar API client ID (optional; Calendar integration is **not** active in the deployed QSignups app until code and `requirements.txt` Google deps are restored — see [qsignups/README.md](../qsignups/README.md)) |
 | `QS_GOOGLE_CLIENT_SECRET` | Google Calendar API client secret (same as above) |
-| `QS_CREATE_OAUTH_TABLES` | Set to `true` for one deploy to run OAuth `create_tables()` DDL on cold start; omit or `false` normally (see **Slack OAuth (database)**) |
 
 ## Slack OAuth (database)
 
-**slackblast** and **qsignups** store Slack app install data in the **same MySQL/TiDB schema** as the rest of each app (the suffixed schema: e.g. `slackblast_test` / `qsignups_prod`), not in S3. On Lambda cold start, Bolt’s `create_tables()` runs **only** when the Lambda env var **`CREATE_OAUTH_TABLES`** is `"true"` (SAM parameter `CreateOauthTables`, default `"false"`). That creates (if missing) three tables: `slack_bots`, `slack_installations`, `slack_oauth_states`. For **first deploy** or after a migration, set **`SB_CREATE_OAUTH_TABLES=true`** and/or **`QS_CREATE_OAUTH_TABLES=true`** in `.env.deploy.*` (or GitHub environment variables of the same names), deploy once, then set back to `false` or remove. Normal deploys skip DDL to reduce cold-start latency. Ensure the DB user has `CREATE TABLE` on that schema when you opt in (typical for app-owned schemas).
+**slackblast** and **qsignups** store Slack app install data in the region schema (`{F3_REGION_NAME}_{STAGE}`), not in S3. `db/migrations/0001_baseline.sql` creates the three tables, `slack_bots`, `slack_installations` and `slack_oauth_states`. The apps never create tables.
 
 **`ENV_SLACK_CLIENT_ID` in Lambda** comes from `SB_SLACK_CLIENT_ID` / `QS_SLACK_CLIENT_ID` in your deploy env (SAM parameter `SlackClientId`). It must match the Slack app whose install row you store; otherwise Bolt cannot resolve the bot token from `slack_installations`.
 
@@ -116,13 +114,13 @@ Bolt resolves the workspace bot token from the **`slack_installations`** table (
 
 1. Deploy the stack and note the **base URL** from CloudFormation outputs **`SlackblastApi`** / **`QSignupsApi`** (Lambda **Function URLs**, e.g. `https://xxxx.lambda-url.us-east-1.on.aws/` — no API Gateway `/Prod/` stage).
 2. In each Slack app’s settings, add an **OAuth Redirect URL**: `{FUNCTION_URL_BASE}/slack/oauth_redirect` (Bolt’s OAuth callback path; must match the deployed Function URL + path).
-3. Open **`{FUNCTION_URL_BASE}/slack/install`** in a browser while signed into Slack and complete the install for your workspace. That writes **`slack_installations`** (and related rows) in `slackblast_<stage>` / `qsignups_<stage>`.
+3. Open **`{FUNCTION_URL_BASE}/slack/install`** in a browser while signed into Slack and complete the install for your workspace. That writes **`slack_installations`** (and related rows) in the region schema.
 
 If you skip this, slash commands and modals can fail (e.g. missing auth, `expired_trigger_id` on cold starts, or `lambda:InvokeFunction` errors until the lazy listener can run with a valid client).
 
-### PAXMiner `regions` row and Slackblast coupling
+### The `region_config` row and Slackblast coupling
 
-Scheduled PAXMiner Lambdas read **`slack_token`**, channel IDs, and feature toggles from **`paxminer_<stage>.regions`**. Slackblast links via **`slackblast_<stage>.regions.paxminer_schema`** and invokes the achievements Function URL after backblast writes when URL + webhook secret are configured.
+Scheduled PAXMiner Lambdas read **`slack_token`**, channel IDs, and feature toggles from **`region_config`** in the region schema. Slackblast reads the same row and invokes the achievements Function URL after backblast writes when URL + webhook secret are configured.
 
 - Ensure **`PM_SLACK_TOKEN`**, **`PM_SLACK_SIGNING_SECRET`**, **`PM_ACHIEVEMENTS_WEBHOOK_SECRET`**, **`F3_REGION_NAME`**, and **`STAGE`** are set on deploy.
 - Configure timezone, daily achievements, report schedules, Kotter thresholds, and achievement catalog via **`/config-paxminer`** (workspace admin).
@@ -230,8 +228,9 @@ aws cloudformation describe-stack-resources \
 
 **slackblast** and **qsignups** use Bolt’s **`process_before_response`** pattern on Lambda: the function must be allowed to **invoke itself** so the “lazy” handler runs after Slack gets an immediate `ack`. The SAM templates grant **`lambda:InvokeFunction`** on functions in the same stack. If this permission were missing, you would see **`AccessDeniedException`** on self-invoke and Slack would report that the app did not respond.
 
+## Tulsa history: `migrate_data.py`
 
-Use this when migrating data from an existing MySQL/RDS instance to a new TiDB or MySQL host.
+This is how Tulsa was copied onto TiDB. A new region does not run it. Follow [New region database](#new-region-database). `db/migrations` creates the OAuth tables and Slackblast's receipt tables, so `--bootstrap-only` is not part of a new region's setup.
 
 ### What `migrate_data.py` does
 
@@ -385,10 +384,8 @@ Create environments **`test`** and **`prod`** in your repo settings (or run `./d
 | `IMAGE_S3_BUCKET` | `slack-stack-images-prod` | Globally unique |
 | `F3_REGION_SLACK_TEAM_ID` | `T01234567` | Slack workspace Team ID |
 | `PM_SLACK_APP_ID` | `A01234567` | PAXMiner Slack App ID for the **PAXMiner Settings** deep-link on `/config-slackblast` (public; use a variable, not a secret). Empty keeps the `/config-paxminer` hint. |
-| `SB_SLACK_CLIENT_ID` | `10773766677089.xxx` | Slack OAuth Client ID for slackblast (public app id; use a variable, not a secret) |
-| `QS_SLACK_CLIENT_ID` | `10773766677089.xxx` | Slack OAuth Client ID for qsignups (public app id; use a variable, not a secret) |
-| `SB_CREATE_OAUTH_TABLES` | *(omit)* | Optional; set to `true` for one deploy to create OAuth tables (see **Slack OAuth (database)**) |
-| `QS_CREATE_OAUTH_TABLES` | *(omit)* | Optional; set to `true` for one deploy to create OAuth tables (see **Slack OAuth (database)**) |
+| `SB_SLACK_CLIENT_ID` | `1234567890123.1234567890123` | Slack OAuth Client ID for slackblast (public app id; use a variable, not a secret) |
+| `QS_SLACK_CLIENT_ID` | `1234567890123.1234567890123` | Slack OAuth Client ID for qsignups (public app id; use a variable, not a secret) |
 | `RUN_EXTEND_SCHEDULE` | *(omit)* | Optional; `true` = run QSignups extend-schedule on deploy via new `ExtendScheduleDeployNonce` |
 | `ENABLE_XRAY` | *(omit)* | Optional; `true` = enable AWS X-Ray on slackblast + qsignups |
 

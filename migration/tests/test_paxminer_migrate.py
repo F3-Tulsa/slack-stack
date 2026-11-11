@@ -307,10 +307,10 @@ def test_achievements_phase_classifies_null_activity_types():
 
 
 def test_achievements_ddl_stays_additive_for_slackblast_orm():
-    from achievements.achievement_rules import (
+    from achievements.achievement_rules import AWARDED_PERIOD_COLUMNS
+    from paxminer_phases.legacy_ddl import (
         ACHIEVEMENTS_AWARDED_DDL,
         ACHIEVEMENTS_LIST_DDL,
-        AWARDED_PERIOD_COLUMNS,
     )
 
     for col in (
@@ -333,20 +333,22 @@ def test_achievements_ddl_stays_additive_for_slackblast_orm():
     for col in AWARDED_PERIOD_COLUMNS:
         assert f"`{col}`" in ACHIEVEMENTS_AWARDED_DDL
     assert "UNIQUE KEY `uniq_award_period`" in ACHIEVEMENTS_AWARDED_DDL
-    sql_path = (
-        _REPO
-        / "slackblast"
-        / "slackblast"
-        / "utilities"
-        / "database"
-        / "create_clear_local_db.sql"
-    )
-    local = sql_path.read_text(encoding="utf-8")
-    beatdowns = local.split("CREATE TABLE f3devregion.`beatdowns`")[1].split("CREATE TABLE")[0]
-    assert "activity_type" not in beatdowns
 
 
-def test_slackblast_welcome_delivery_ddl_matches_local_schema():
+def _baseline_table(name: str) -> tuple[dict, str]:
+    """0001's parsed table and its raw CREATE statement."""
+    from baseline_shape import BASELINE, parse_baseline
+
+    sql = BASELINE.read_text(encoding="utf-8")
+    raw = sql.split(f"CREATE TABLE IF NOT EXISTS `{name}`")[1].split(";\n")[0]
+    return parse_baseline(sql)[name], raw
+
+
+def _baseline_column(table: dict, name: str) -> dict:
+    return next(col for col in table["columns"] if col["name"] == name)
+
+
+def test_slackblast_welcome_delivery_ddl_matches_baseline():
     from migrate_data import _ddl_slackblast_welcome_deliveries
 
     migration_ddl = _ddl_slackblast_welcome_deliveries("slackblast_test")
@@ -355,22 +357,16 @@ def test_slackblast_welcome_delivery_ddl_matches_local_schema():
     assert "`team_id` varchar(100) NOT NULL" in migration_ddl
     assert "`user_id` varchar(100) NOT NULL" in migration_ddl
 
-    sql_path = (
-        _REPO
-        / "slackblast"
-        / "slackblast"
-        / "utilities"
-        / "database"
-        / "create_clear_local_db.sql"
-    )
-    local = sql_path.read_text(encoding="utf-8")
-    local_ddl = local.split("CREATE TABLE slackblast.`welcome_deliveries`")[1].split("CREATE TABLE")[0]
-    assert "PRIMARY KEY (`event_id`, `destination`)" in local_ddl
-    assert "`team_id` varchar(100) NOT NULL" in local_ddl
-    assert "`user_id` varchar(100) NOT NULL" in local_ddl
+    table, _raw = _baseline_table("welcome_deliveries")
+    primary = next(index for index in table["indexes"] if index["name"] == "PRIMARY")
+    assert primary["columns"] == ["event_id", "destination"]
+    for name in ("team_id", "user_id"):
+        column = _baseline_column(table, name)
+        assert column["type"] == "varchar(100)"
+        assert column["nullable"] is False
 
 
-def test_slackblast_interaction_claims_ddl_matches_local_schema():
+def test_slackblast_interaction_claims_ddl_matches_baseline():
     from migrate_data import _ddl_slackblast_interaction_claims
 
     migration_ddl = _ddl_slackblast_interaction_claims("slackblast_test")
@@ -380,20 +376,14 @@ def test_slackblast_interaction_claims_ddl_matches_local_schema():
     assert "KEY `idx_interaction_claims_team`" in migration_ddl
     assert "Claim view.id before Slack post" in migration_ddl
 
-    sql_path = (
-        _REPO
-        / "slackblast"
-        / "slackblast"
-        / "utilities"
-        / "database"
-        / "create_clear_local_db.sql"
-    )
-    local = sql_path.read_text(encoding="utf-8")
-    local_ddl = local.split("CREATE TABLE slackblast.`interaction_claims`")[1].split("CREATE TABLE")[0]
-    assert "PRIMARY KEY (`claim_key`, `kind`)" in local_ddl
-    assert "`team_id` varchar(100) NOT NULL" in local_ddl
-    assert "KEY `idx_interaction_claims_team`" in local_ddl
-    assert "Claim view.id before Slack post" in local_ddl
+    table, raw = _baseline_table("interaction_claims")
+    indexes = {index["name"]: index for index in table["indexes"]}
+    assert indexes["PRIMARY"]["columns"] == ["claim_key", "kind"]
+    assert indexes["idx_interaction_claims_team"]["columns"] == ["team_id"]
+    team_id = _baseline_column(table, "team_id")
+    assert team_id["type"] == "varchar(100)"
+    assert team_id["nullable"] is False
+    assert "Claim view.id before Slack post" in raw
 
 
 def test_bootstrap_only_does_not_require_source_database_settings():

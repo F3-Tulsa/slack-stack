@@ -37,9 +37,7 @@ pip install -r slackblast/requirements.txt
 1. Copy [.env.example](.env.example) to **`.env`** in this same directory and set `SLACK_*`, `ADMIN_DATABASE_USER`, `ADMIN_DATABASE_PASSWORD`, **`DATABASE_SCHEMA`**, **`F3_REGION_NAME`**, and **`IMAGE_S3_BUCKET`** (required for image URLs and uploads).
 2. Create a **Slack app** from **[manifest.json](manifest.json)**. For local dev, replace every `__HOSTNAME__` with your ngrok **base URL** (e.g. `https://abc.ngrok-free.app`, no path). For AWS, run **`./deploy.sh`** from the repo root and use the generated **`slackblast/manifest-{test|prod}.json`** (gitignored), which already contains your Lambda **Function URL** base (no `/Prod/` stage prefix).
 
-3. Initialize a local DB: from this directory (`template.yaml` here), install the dev helper dependency (`pip install sqlalchemy-utils` — it is not bundled in the Lambda `requirements.txt`), then run  
-   `set -a && source .env && set +a && python slackblast/utilities/database/create_clear_local_db.py`  
-   (or run the SQL in `slackblast/utilities/database/create_clear_local_db.sql` manually).
+3. Create a local schema the same way a new region does. In the repo root, put your local MySQL's `DATABASE_*` values (`DATABASE_TLS_ENABLED=false`), `F3_REGION_NAME` and `F3_REGION_SLACK_TEAM_ID` in an env file whose name ends in `.test`, then run `pip install -r db/requirements.txt` and `python db/fresh_install.py --env-file <that file>`. It creates `{F3_REGION_NAME}_test` from `db/migrations` and seeds the defaults; set `DATABASE_SCHEMA` in `.env` to that name. See [docs/DEPLOY.md](../docs/DEPLOY.md#new-region-database).
 4. `ngrok http 3000`, paste the forwarding URL into the Slack app URLs, then run the app from the **inner** package dir, e.g.  
    `cd slackblast && set -a && source ../.env && set +a && python app.py`  
    (or nodemon/poetry per your setup).

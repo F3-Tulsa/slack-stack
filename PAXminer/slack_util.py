@@ -60,7 +60,7 @@ _ARCHIVE_BASE_CACHE: dict[str, str] = {}
 
 
 def workspace_archive_base(client: WebClient | None) -> str:
-    """Workspace archive host, e.g. ``https://f3ttown-test.slack.com``.
+    """Workspace archive host, e.g. ``https://yourregion.slack.com``.
 
     Permalinks built on the bare ``slack.com`` host open in the browser but do
     not deep-link in the Slack mobile app, so every message link has to carry

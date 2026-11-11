@@ -12,10 +12,6 @@ sys.path.insert(0, str(_REPO / "PAXminer"))
 
 from achievements.achievement_rules import (  # noqa: E402
     ACHIEVEMENT_SEEDS,
-    ACHIEVEMENT_VERSIONS_DDL,
-    ACHIEVEMENTS_AWARDED_DDL,
-    ACHIEVEMENTS_LIST_DDL,
-    ACHIEVEMENTS_VIEW_DDL,
     AWARDED_PERIOD_COLUMNS,
 )
 from achievements.activity import (  # noqa: E402
@@ -33,6 +29,12 @@ from paxminer_phases.db import (  # noqa: E402
     _pm_schema,
     _table_exists,
     assert_regional_stage,
+)
+from paxminer_phases.legacy_ddl import (  # noqa: E402
+    ACHIEVEMENT_VERSIONS_DDL,
+    ACHIEVEMENTS_AWARDED_DDL,
+    ACHIEVEMENTS_LIST_DDL,
+    ACHIEVEMENTS_VIEW_DDL,
 )
 
 LOG = logging.getLogger(__name__)

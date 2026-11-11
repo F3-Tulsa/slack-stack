@@ -5,7 +5,7 @@
 - **`expired_trigger_id` / cold start:** First interaction after idle may fail; user retries usually succeed. Mitigations: **Lambda Function URLs** (less hop latency than API Gateway), EventBridge keep-warm, module-init DB/Fernet/Lambda-client warmup, lazy-listener self-invoke (zip apps), or provisioned concurrency if still tight on Slack’s 3s window.
 - **Duplicate backblast / preblast in a channel:** Slack retried one `view_submission` after a slow ack (>3s). Each retry is a new Lambda; `beatdowns` uniqueness cannot help because it needs Slack’s `ts` from `chat_postMessage`. Slackblast INSERTs `view.id` into `interaction_claims` *before* posting; a 1062 skip is logged as `Skipping duplicate`. If extras reappear, confirm the table exists (below). Design: [ARCHITECTURE.md](ARCHITECTURE.md) (slackblast retry receipts).
 - **INFO missing in CloudWatch (slackblast):** Bolt’s `clear_all_log_handlers()` strips Lambda’s root handler. The app must re-attach a `StreamHandler` or INFO lines never appear.
-- **OAuth tables missing:** Run the one-shot **`CREATE_OAUTH_TABLES`** flag for that app/stack after first deploy (see [DEPLOY.md](DEPLOY.md)).
+- **OAuth tables missing:** `db/migrations` creates `slack_bots`, `slack_installations` and `slack_oauth_states`. Run `python db/migrate.py --env-file .env.deploy.<stage> --check` to see whether the schema is behind (see [DEPLOY.md](DEPLOY.md#new-region-database)).
 
 ## Lambda
 
