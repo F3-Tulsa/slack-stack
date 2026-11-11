@@ -148,7 +148,7 @@ def test_mark_schedule_status_tolerates_missing_last_run_at():
     cur.execute.side_effect = [UnknownColumn(), None]
     mark_schedule_status(
         conn,
-        "paxminer_test",
+        "f3test",
         7,
         date(2026, 7, 19),
         "running",
@@ -165,7 +165,7 @@ def test_mark_schedule_status_tolerates_missing_last_run_at():
     cur.execute.side_effect = None
     mark_schedule_status(
         conn,
-        "paxminer_test",
+        "f3test",
         8,
         date(2026, 7, 19),
         "success",
@@ -209,7 +209,7 @@ def test_award_achievements_destination_and_dispatch():
                     return_value={"grants": 1, "revokes": 0},
                 ) as mock_run:
                     result = _dispatch_report(
-                        MagicMock(), "paxminer_test", region, schedule, definition
+                        MagicMock(), "f3test", region, schedule, definition
                     )
 
     mock_run.assert_called_once()
@@ -241,7 +241,7 @@ def test_award_dispatch_omits_posted_channels_when_nothing_posted():
                     return_value={"grants": 0, "revokes": 0},
                 ):
                     result = _dispatch_report(
-                        MagicMock(), "paxminer_test", region, schedule, definition
+                        MagicMock(), "f3test", region, schedule, definition
                     )
     assert "posted_channels" not in result
     assert result.get("channel_count") == 0
@@ -468,28 +468,6 @@ def test_resolve_log_channel_prefers_stored_id():
     assert post.call_args.args[1] == "CLOG99"
 
 
-def test_ensure_log_channel_column_adds_when_missing():
-    from unittest.mock import MagicMock
-
-    from schedule_schema import ensure_log_channel_column
-
-    cur = MagicMock()
-    cur.fetchone.return_value = {"c": 0}
-    assert ensure_log_channel_column(cur, "paxminer") is True
-    assert "log_channel" in cur.execute.call_args_list[-1][0][0]
-
-
-def test_ensure_log_channel_column_skips_when_present():
-    from unittest.mock import MagicMock
-
-    from schedule_schema import ensure_log_channel_column
-
-    cur = MagicMock()
-    cur.fetchone.return_value = {"c": 1}
-    assert ensure_log_channel_column(cur, "paxminer") is False
-    assert cur.execute.call_count == 1
-
-
 def test_format_run_result_variants():
     from schedule_runner import format_run_result
 
@@ -642,7 +620,7 @@ def test_dispatch_skips_empty_specific_channels_without_expanding():
     with patch("schedule_runner.connect_from_env", return_value=mock_conn):
         with patch("schedule_runner.decrypt_field", return_value="xoxb-test"):
             with patch("monthly_charts.PAXcharter.run_pax_charter") as mock_pax:
-                result = _dispatch_report(None, "paxminer_test", region, schedule, definition)
+                result = _dispatch_report(None, "f3test", region, schedule, definition)
     assert result.get("skipped") == "no destinations configured"
     mock_pax.assert_not_called()
 
@@ -736,8 +714,8 @@ def test_schedule_handler_notifies_user_on_completion():
     mock_cur.fetchone.side_effect = [row, region]
 
     with patch("handlers.connect_from_env", return_value=mock_conn):
-        with patch("handlers._pm_schema", return_value="paxminer_test"):
-            with patch("handlers._registry_database", return_value="paxminer_test"):
+        with patch("handlers._pm_schema", return_value="f3test"):
+            with patch("handlers._registry_database", return_value="f3test"):
                     with patch(
                         "schedule_runner.run_one_schedule_item", return_value=result
                     ) as mock_run:
@@ -773,8 +751,8 @@ def test_schedule_handler_run_now_does_not_dm_admin():
     mock_cur.fetchone.return_value = row
 
     with patch("handlers.connect_from_env", return_value=mock_conn):
-        with patch("handlers._pm_schema", return_value="paxminer_test"):
-            with patch("handlers._registry_database", return_value="paxminer_test"):
+        with patch("handlers._pm_schema", return_value="f3test"):
+            with patch("handlers._registry_database", return_value="f3test"):
                 with patch("schedule_runner.run_one_schedule_item", return_value=result):
                     with patch("schedule_runner.notify_run_result") as mock_dm:
                         schedule_handler(
@@ -819,7 +797,7 @@ def test_backfill_award_achievements_schedules_idempotent():
 
     with patch("schedule_schema._table_exists", return_value=True):
         cur.fetchone.side_effect = [{"id": 42}, {"c": 0}]
-        first = backfill_award_achievements_schedules(cur, "paxminer_test")
+        first = backfill_award_achievements_schedules(cur, "f3test")
         assert first["schedules_inserted"] == 1
         assert first["definitions_ensured"] == 0
         insert_calls = [
@@ -835,7 +813,7 @@ def test_backfill_award_achievements_schedules_idempotent():
         cur.reset_mock()
         cur.fetchall.return_value = [region]
         cur.fetchone.side_effect = [{"id": 42}, {"c": 1}]
-        second = backfill_award_achievements_schedules(cur, "paxminer_test")
+        second = backfill_award_achievements_schedules(cur, "f3test")
         assert second["schedules_inserted"] == 0
         assert second["skipped"] == 1
         assert not any(
@@ -871,7 +849,7 @@ def test_seed_default_schedules_uses_defaults_json():
     ):
         inserted = seed_default_schedules(
             cur,
-            "paxminer_test",
+            "f3test",
             {"schema_name": "f3ttown", "send_pax_charts": 0},
             skip_if_any_schedules=True,
         )
@@ -1058,7 +1036,7 @@ def test_restore_defaults_is_idempotent():
     cur.fetchone.side_effect = [{"c": 0} for _ in DEFAULT_SCHEDULES]
     with patch("schedule_schema.upsert_builtin_definitions", return_value=code_ids):
         first = seed_default_schedules(
-            cur, "paxminer_test", {"schema_name": "f3ttown"}, merge_only=True
+            cur, "f3test", {"schema_name": "f3ttown"}, merge_only=True
         )
     assert first == len(DEFAULT_SCHEDULES)
 
@@ -1067,7 +1045,7 @@ def test_restore_defaults_is_idempotent():
     cur2.fetchone.side_effect = [{"c": 1} for _ in DEFAULT_SCHEDULES]
     with patch("schedule_schema.upsert_builtin_definitions", return_value=code_ids):
         second = seed_default_schedules(
-            cur2, "paxminer_test", {"schema_name": "f3ttown"}, merge_only=True
+            cur2, "f3test", {"schema_name": "f3ttown"}, merge_only=True
         )
     assert second == 0
     insert_calls = [
@@ -1402,12 +1380,6 @@ def test_dispatch_passes_window_to_q_charts():
         _dispatch_report(registry, "paxminer", region, schedule, definition)
 
     assert captured["window"] == (date(2026, 6, 1), date(2026, 6, 30))
-
-
-def test_ddl_includes_is_customized():
-    from schedule_schema import DDL_REGION_REPORT_DEFINITIONS
-
-    assert "is_customized" in DDL_REGION_REPORT_DEFINITIONS
 
 
 def test_format_schedule_log_line_manual_vs_scheduled_and_dm_dest():
@@ -1971,20 +1943,8 @@ def test_kotter_empty_threshold_acks_errors_without_writing():
     mock_conn.assert_not_called()
 
 
-def test_ensure_report_enabled_column_adds_when_missing():
-    from unittest.mock import MagicMock
-
-    from schedule_schema import ensure_report_enabled_column
-
-    cur = MagicMock()
-    cur.fetchone.side_effect = [{"c": 1}, {"c": 0}]
-    assert ensure_report_enabled_column(cur, "paxminer") is True
-    alter = cur.execute.call_args_list[-1].args[0]
-    assert "ADD COLUMN `enabled`" in alter
-
-
 def test_list_due_schedules_skips_disabled_definitions():
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import MagicMock
 
     from schedule_runner import list_due_schedules
 
@@ -1992,8 +1952,8 @@ def test_list_due_schedules_skips_disabled_definitions():
     cur = MagicMock()
     conn.cursor.return_value.__enter__.return_value = cur
     cur.fetchall.return_value = []
-    with patch("schedule_runner.ensure_report_enabled_column"):
-        list_due_schedules(conn, "paxminer")
+    list_due_schedules(conn, "paxminer")
+    assert cur.execute.call_count == 1
     sql = cur.execute.call_args.args[0]
     assert "COALESCE(d.enabled, 1) = 1" in sql
     assert "region_report_definitions" in sql

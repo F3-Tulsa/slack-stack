@@ -12,7 +12,9 @@ SQL files are split on semicolons. The splitter assumes the default `sql_mode`, 
 
 `0001_baseline.sql` is the rehearsed consolidated schema. It creates tables and views only. The runner still creates `schema_migrations` itself. Nothing in `deploy.sh` or `deploy.yml` calls the runner.
 
-`0002_region_flag_defaults.sql` gives Slackblast's flag columns server defaults and fills NULLs. It is not applied to `f3ttown_test` or `f3ttown_prod` until an operator runs the runner there. Tulsa's existing row already has those values, so the backfill does not change it.
+App code never creates or alters tables. A schema change is a new numbered file here. `migration/tests/test_no_runtime_ddl.py` fails on DDL in app code, and `migration/tests/test_legacy_ddl_covered.py` checks that `0001` covers what Tulsa's old runtime copies created.
+
+`0002_region_flag_defaults.sql` gives Slackblast's flag columns server defaults and fills NULLs.
 
 `python db/fresh_install.py --env-file .env.deploy.test` creates a new region's schema, applies pending files, and seeds defaults only when the report and achievement tables are empty. It refuses `f3ttown_test` and `f3ttown_prod`. `F3_REGION_SLACK_TEAM_ID` is required. `--timezone` overrides `F3_TIMEZONE`, which otherwise defaults to `America/Chicago`. The Slack token is left empty for the Lambda cold start.
 

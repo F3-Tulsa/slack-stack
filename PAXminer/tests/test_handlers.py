@@ -61,8 +61,8 @@ def test_schedule_tick_isolates_per_item_failures():
         return {"schedule_id": 2, "ok": True}
 
     with patch("handlers.connect_from_env", return_value=mock_conn):
-        with patch("handlers._pm_schema", return_value="paxminer_test"):
-            with patch("handlers._registry_database", return_value="paxminer_test"):
+        with patch("handlers._pm_schema", return_value="f3test"):
+            with patch("handlers._registry_database", return_value="f3test"):
                 with patch("schedule_runner.list_due_schedules", return_value=due):
                     with patch(
                         "schedule_runner.run_one_schedule_item", side_effect=run_one
@@ -87,8 +87,8 @@ def test_schedule_tick_fans_out_computed_destinations():
     mock_conn = MagicMock()
 
     with patch("handlers.connect_from_env", return_value=mock_conn):
-        with patch("handlers._pm_schema", return_value="paxminer_test"):
-            with patch("handlers._registry_database", return_value="paxminer_test"):
+        with patch("handlers._pm_schema", return_value="f3test"):
+            with patch("handlers._registry_database", return_value="f3test"):
                 with patch("schedule_runner.list_due_schedules", return_value=due):
                     with patch.dict(
                         "os.environ", {"AWS_LAMBDA_FUNCTION_NAME": "paxminer-test-schedule"}
@@ -116,8 +116,8 @@ def test_schedule_tick_runs_specific_destinations_inline():
     mock_conn = MagicMock()
 
     with patch("handlers.connect_from_env", return_value=mock_conn):
-        with patch("handlers._pm_schema", return_value="paxminer_test"):
-            with patch("handlers._registry_database", return_value="paxminer_test"):
+        with patch("handlers._pm_schema", return_value="f3test"):
+            with patch("handlers._registry_database", return_value="f3test"):
                 with patch("schedule_runner.list_due_schedules", return_value=due):
                     with patch.dict(
                         "os.environ", {"AWS_LAMBDA_FUNCTION_NAME": "paxminer-test-schedule"}
@@ -146,8 +146,8 @@ def test_achievement_rule_backfill_clears_lock_when_region_missing():
     mock_cur.fetchone.return_value = None
 
     with patch("handlers.connect_from_env", return_value=mock_conn):
-        with patch("handlers._pm_schema", return_value="paxminer_test"):
-            with patch("handlers._registry_database", return_value="paxminer_test"):
+        with patch("handlers._pm_schema", return_value="f3test"):
+            with patch("handlers._registry_database", return_value="f3test"):
                 with patch("achievements.range.clear_reeval_lock") as unlock:
                     with patch("achievements.runner.reconcile_rule_awards") as recon:
                         resp = schedule_handler(
@@ -175,8 +175,8 @@ def test_achievement_rule_backfill_clears_lock_on_bad_dates():
     mock_cur.fetchone.return_value = {"schema_name": "f3test"}
 
     with patch("handlers.connect_from_env", return_value=mock_conn):
-        with patch("handlers._pm_schema", return_value="paxminer_test"):
-            with patch("handlers._registry_database", return_value="paxminer_test"):
+        with patch("handlers._pm_schema", return_value="f3test"):
+            with patch("handlers._registry_database", return_value="f3test"):
                 with patch("achievements.range.clear_reeval_lock") as unlock:
                     with patch("achievements.runner.reconcile_rule_awards") as recon:
                         resp = schedule_handler(
@@ -204,8 +204,8 @@ def test_achievement_rule_backfill_passes_action_to_reconcile():
     mock_cur.fetchone.return_value = {"schema_name": "f3test"}
 
     with patch("handlers.connect_from_env", return_value=mock_conn):
-        with patch("handlers._pm_schema", return_value="paxminer_test"):
-            with patch("handlers._registry_database", return_value="paxminer_test"):
+        with patch("handlers._pm_schema", return_value="f3test"):
+            with patch("handlers._registry_database", return_value="f3test"):
                 with patch("achievements.runner.reconcile_rule_awards", return_value={"grants": 0}) as recon:
                     resp = schedule_handler(
                         {

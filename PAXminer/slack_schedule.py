@@ -82,7 +82,6 @@ from schedule_schema import (
     delete_all_definitions_and_schedules,
     delete_all_schedules,
     delete_definition_and_schedules,
-    ensure_report_enabled_column,
     restore_defaults,
 )
 from slack_blocks import (
@@ -229,7 +228,6 @@ def register_schedule_listeners(app) -> None:
         conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
-                ensure_report_enabled_column(cur, pm)
                 defs = load_definitions(cur, pm, regional_schema)
             conn.commit()
             client.views_update(
@@ -276,7 +274,6 @@ def register_schedule_listeners(app) -> None:
         conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
-                ensure_report_enabled_column(cur, pm)
                 defs = load_definitions(cur, pm, regional_schema)
             conn.commit()
             client.views_push(
@@ -309,9 +306,6 @@ def register_schedule_listeners(app) -> None:
         conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
-                from achievements.range import ensure_achievement_range_columns
-
-                ensure_achievement_range_columns(cur, regional_schema)
                 achievements = _load_achievements(cur, regional_schema)
             client.views_push(
                 trigger_id=body["trigger_id"],
@@ -964,7 +958,6 @@ def register_schedule_listeners(app) -> None:
         conn = connect_from_env(database_schema())
         try:
             with conn.cursor() as cur:
-                ensure_report_enabled_column(cur, pm)
                 cur.execute(
                     f"UPDATE `{pm}`.`region_report_definitions` "
                     "SET enabled = 1 - COALESCE(enabled, 0) WHERE id=%s",

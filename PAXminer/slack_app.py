@@ -302,9 +302,6 @@ def _refresh_achievements_list(
     conn = connect_from_env(_registry_db())
     try:
         with conn.cursor() as cur:
-            from achievements.range import ensure_achievement_range_columns
-
-            ensure_achievement_range_columns(cur, regional_schema)
             achievements = _load_achievements(cur, regional_schema)
             if not reeval_from:
                 chosen = next((a for a in achievements if a.get("id") == selected_id), None)
@@ -597,7 +594,6 @@ def handle_backfill_achievement(ack, body, client, logger):
     start, end = _reeval_dates_from_payload(body)
     from achievements.range import (
         clear_reeval_lock,
-        ensure_achievement_range_columns,
         try_acquire_reeval_lock,
     )
     from slack_schedule import queue_achievement_backfill
@@ -607,7 +603,6 @@ def handle_backfill_achievement(ack, body, client, logger):
     acquired = False
     try:
         with conn.cursor() as cur:
-            ensure_achievement_range_columns(cur, regional_schema)
             ok, lock_msg = try_acquire_reeval_lock(cur, regional_schema, int(selected_id))
             conn.commit()
             if not ok:
@@ -846,7 +841,6 @@ def _add_one_achievement(cur, schema: str, values: dict, user_id: str, *, mode, 
 def handle_restore_achievements(ack, body, client, logger):
     from achievements.range import (
         clear_reeval_lock,
-        ensure_achievement_range_columns,
         resolve_stored_range,
         should_auto_queue,
         try_acquire_reeval_lock,
@@ -865,7 +859,6 @@ def handle_restore_achievements(ack, body, client, logger):
     try:
         queued: list[tuple[int, str | None, str | None]] = []
         with conn.cursor() as cur:
-            ensure_achievement_range_columns(cur, regional_schema)
             earliest = earliest_beatdown_date(cur, regional_schema)
             today = date.today().isoformat()
             added = 0
@@ -1044,8 +1037,6 @@ def _join_log_channel(client, channel_id: str | None, logger) -> None:
 
 def handle_config_submit(ack, body, client, logger):
     """Named listener for config modal save — importable for unit tests."""
-    from schedule_schema import ensure_log_channel_column
-
     user_id = (body.get("user") or {}).get("id", "")
     if not is_slack_admin(user_id, client=client):
         ack(response_action="errors", errors={"timezone": "Admin required"})
@@ -1070,7 +1061,6 @@ def handle_config_submit(ack, body, client, logger):
         return
     try:
         with conn.cursor() as cur:
-            ensure_log_channel_column(cur, pm)
             cur.execute(
                 f"UPDATE `{pm}`.`region_config` SET `timezone`=%s, `log_channel`=%s WHERE region=%s",
                 (timezone, log_channel, region_key),
@@ -1123,7 +1113,6 @@ def handle_achievement_edit_submit(ack, body, client, logger):
     from achievements.range import (
         clear_reeval_lock,
         count_awards_outside_range,
-        ensure_achievement_range_columns,
         range_changed,
         resolve_stored_range,
         should_auto_queue,
@@ -1168,7 +1157,6 @@ def handle_achievement_edit_submit(ack, body, client, logger):
     notice = None
     try:
         with conn.cursor() as cur:
-            ensure_achievement_range_columns(cur, regional_schema)
             earliest = earliest_beatdown_date(cur, regional_schema)
             existing = _load_achievement(cur, regional_schema, achievement_id) if achievement_id else None
             from achievements.activity import resolve_activity_filter_for_save

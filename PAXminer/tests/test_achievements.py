@@ -189,7 +189,7 @@ def test_kotter_nation_coerces_bad_dates():
         patch.object(kotter_mod, "build_kotter_message", return_value=("ok", [])),
     ):
         result = kotter_mod.run_kotter_for_region(
-            conn, "paxminer_test", region_row, dry_run=True
+            conn, "f3test", region_row, dry_run=True
         )
     assert result.get("dry_run") is True
     assert "error" not in result
@@ -328,7 +328,7 @@ def test_run_achievements_skips_duplicate_grants():
                     with patch("achievements.runner.evaluate_rule", return_value=qual):
                         result = run_achievements_for_region(
                             mock_conn,
-                            pm_schema="paxminer_test",
+                            pm_schema="f3test",
                             regional_schema="f3test",
                             region_row=region_row,
                             dry_run=True,
@@ -377,7 +377,7 @@ def test_run_achievements_skips_when_no_attendance_data():
                 with patch("achievements.runner.evaluate_rule") as mock_eval:
                     result = run_achievements_for_region(
                         mock_conn,
-                        pm_schema="paxminer_test",
+                        pm_schema="f3test",
                         regional_schema="f3test",
                         region_row=region_row,
                         dry_run=True,
@@ -410,7 +410,7 @@ def test_channel_override_bypasses_send_achievements_gate():
         with patch("achievements.runner.slack_client"):
             result = run_achievements_for_region(
                 mock_conn,
-                pm_schema="paxminer_test",
+                pm_schema="f3test",
                 regional_schema="f3test",
                 region_row=region_row,
                 channel_override="C_SCHEDULE",
@@ -422,7 +422,7 @@ def test_channel_override_bypasses_send_achievements_gate():
     # Without override, the legacy gate still applies.
     result2 = run_achievements_for_region(
         mock_conn,
-        pm_schema="paxminer_test",
+        pm_schema="f3test",
         regional_schema="f3test",
         region_row=region_row,
         dry_run=True,
@@ -475,7 +475,7 @@ def test_run_achievements_skips_revokes_on_unscoped_run():
                     with patch("achievements.runner.evaluate_rule", return_value=pd.DataFrame()):
                         result = run_achievements_for_region(
                             mock_conn,
-                            pm_schema="paxminer_test",
+                            pm_schema="f3test",
                             regional_schema="f3test",
                             region_row=region_row,
                             pax_user_ids=None,
@@ -573,7 +573,7 @@ def test_reconcile_holds_prior_year_award_in_later_year_window():
                     with patch("achievements.runner.evaluate_rule", return_value=qualified_2026):
                         result = run_achievements_for_region(
                             mock_conn,
-                            pm_schema="paxminer_test",
+                            pm_schema="f3test",
                             regional_schema="f3test",
                             region_row=region_row,
                             start=date(2025, 12, 25),
@@ -652,7 +652,7 @@ def test_run_achievements_scoped_revoke_only_for_webhook_pax():
                     with patch("achievements.runner.evaluate_rule", return_value=pd.DataFrame()):
                         result = run_achievements_for_region(
                             mock_conn,
-                            pm_schema="paxminer_test",
+                            pm_schema="f3test",
                             regional_schema="f3test",
                             region_row=region_row,
                             pax_user_ids={"U1"},
@@ -725,7 +725,7 @@ def test_run_achievements_grants_and_posts():
                                     ):
                                         result = run_achievements_for_region(
                                             mock_conn,
-                                            pm_schema="paxminer_test",
+                                            pm_schema="f3test",
                                             regional_schema="f3test",
                                             region_row=region_row,
                                             dry_run=False,
@@ -801,7 +801,7 @@ def test_run_achievements_ignored_insert_does_not_announce():
                                 with patch("achievements.runner.open_dm_channel") as mock_dm:
                                     result = run_achievements_for_region(
                                         mock_conn,
-                                        pm_schema="paxminer_test",
+                                        pm_schema="f3test",
                                         regional_schema="f3test",
                                         region_row=region_row,
                                         dry_run=False,
@@ -868,7 +868,7 @@ def test_announce_false_inserts_without_slack():
                         with patch("achievements.runner.post_message") as mock_post:
                             result = run_achievements_for_region(
                                 mock_conn,
-                                pm_schema="paxminer_test",
+                                pm_schema="f3test",
                                 regional_schema="f3test",
                                 region_row=region_row,
                                 announce=False,
@@ -896,18 +896,18 @@ def test_resolve_achievement_channel_prefers_schedule():
     region_row = {"region_achievements_channel": "C_FALLBACK", "send_achievements": 1}
 
     assert (
-        resolve_achievement_channel(mock_conn, "paxminer_test", "f3test", region_row)
+        resolve_achievement_channel(mock_conn, "f3test", "f3test", region_row)
         == "C_SCHED"
     )
     mock_cur.fetchone.return_value = None
     assert (
-        resolve_achievement_channel(mock_conn, "paxminer_test", "f3test", region_row)
+        resolve_achievement_channel(mock_conn, "f3test", "f3test", region_row)
         == "C_FALLBACK"
     )
     assert (
         resolve_achievement_channel(
             mock_conn,
-            "paxminer_test",
+            "f3test",
             "f3test",
             region_row,
             channel_override="C_OVR",
@@ -1309,7 +1309,7 @@ def test_achievements_loads_only_regional_schema():
                         ):
                             runner_mod.run_achievements_for_region(
                                 mock_conn,
-                                pm_schema="paxminer_test",
+                                pm_schema="f3test",
                                 regional_schema="f3ttown_test",
                                 region_row=region_row,
                                 dry_run=True,
@@ -1361,7 +1361,7 @@ def test_kotter_loads_only_regional_schema():
         patch.object(kotter_mod, "build_kotter_message", return_value=("ok", [])),
     ):
         result = kotter_mod.run_kotter_for_region(
-            conn, "paxminer_test", region_row, dry_run=True
+            conn, "f3test", region_row, dry_run=True
         )
 
     assert result.get("dry_run") is True
@@ -1390,10 +1390,10 @@ def test_leaderboard_loads_only_regional_schema():
             with patch.object(lb_mod, "build_leaderboard_message", return_value=("", [])):
                 with patch.object(lb_mod, "build_almost_there_message", return_value=("", [])):
                     result = lb_mod.run_leaderboard_for_region(
-                        mock_conn, "paxminer_test", region_row, dry_run=True
+                        mock_conn, "f3test", region_row, dry_run=True
                     )
                     almost = lb_mod.run_almost_there_for_region(
-                        mock_conn, "paxminer_test", region_row, dry_run=True
+                        mock_conn, "f3test", region_row, dry_run=True
                     )
 
     assert result.get("dry_run") is True
@@ -1420,7 +1420,7 @@ def test_plain_leaderboard_skips_achievement_versions_sql():
 
     with patch.object(lb_mod, "build_leaderboard_message", return_value=("", [])):
         lb_mod.run_leaderboard_for_region(
-            mock_conn, "paxminer_test", region_row, dry_run=True
+            mock_conn, "f3test", region_row, dry_run=True
         )
     sqls = " ".join(str(c.args[0]) for c in mock_cur.execute.call_args_list)
     assert "achievement_versions" not in sqls
@@ -1431,7 +1431,7 @@ def test_plain_leaderboard_skips_achievement_versions_sql():
         with patch.object(lb_mod, "attach_home_regions", side_effect=lambda _c, n, _s: n):
             with patch.object(lb_mod, "build_almost_there_message", return_value=("", [])):
                 lb_mod.run_almost_there_for_region(
-                    mock_conn, "paxminer_test", region_row, dry_run=True
+                    mock_conn, "f3test", region_row, dry_run=True
                 )
     sqls = " ".join(str(c.args[0]) for c in mock_cur.execute.call_args_list)
     assert "achievement_versions" in sqls
