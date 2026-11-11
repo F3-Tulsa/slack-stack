@@ -6,7 +6,7 @@ See **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** for Python 3.12 venvs per app
 
 ## Branches
 
-Shared changes go to the F3Nation-Community repository's `main` once that repository exists. A region's fork deploys its own `test` and `prod`. Until that repository exists, open pull requests here. This page does not link a repository that is not there yet. Prefer short-lived feature branches.
+Open pull requests on `F3-Tulsa/slack-stack`, against `test`. After the `test` deploy passes, `test` is promoted to `main`, and `main` to `prod`. Another region that wants to run slack-stack forks this repository and deploys its own `test` and `prod` from the fork. Prefer short-lived feature branches.
 
 ## Pull requests
 
