@@ -9,17 +9,17 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO / "PAXminer"))
 
-from schedule_schema import (  # noqa: E402
-    backfill_award_achievements_schedules,
+from schedule_schema import backfill_award_achievements_schedules  # noqa: E402
+
+from paxminer_phases.db import _pm_schema  # noqa: E402
+from paxminer_phases.legacy_ddl import (  # noqa: E402
     ensure_is_customized_column,
-    ensure_report_enabled_column,
     ensure_last_run_at_column,
     ensure_log_channel_column,
+    ensure_report_enabled_column,
     ensure_scheduler_tables,
     ensure_timezone_column,
 )
-
-from paxminer_phases.db import _pm_schema  # noqa: E402
 
 LOG = logging.getLogger(__name__)
 

@@ -12,7 +12,6 @@ from typing import Any
 
 from common.encryption import decrypt_field
 from paxminer_db import connect_from_env
-from schedule_schema import ensure_report_enabled_column
 from scheduling import (
     destination_descriptor,
     format_iso_range,
@@ -624,10 +623,6 @@ def run_one_schedule_item(
     if not force and not is_due_now(schedule, timezone_name=tz_name):
         return {"schedule_id": schedule_id, "ok": True, "skipped": "not due"}
 
-    with registry_conn.cursor() as cur:
-        ensure_report_enabled_column(cur, pm_schema)
-        registry_conn.commit()
-
     definition = _load_definition(registry_conn, pm_schema, int(schedule["report_definition_id"]))
     if not definition:
         mark_schedule_status(
@@ -1072,8 +1067,6 @@ def _dispatch_report(
 def list_due_schedules(conn, pm_schema: str) -> list[dict]:
     """Return enabled schedules whose report definition is also enabled."""
     with conn.cursor() as cur:
-        ensure_report_enabled_column(cur, pm_schema)
-        conn.commit()
         cur.execute(
             f"""
             SELECT s.*, r.timezone AS region_timezone

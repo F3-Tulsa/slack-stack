@@ -106,13 +106,6 @@ Parameters:
   ImageBucketName:
     Description: S3 bucket for weinke PNGs (same public bucket as slackblast images; objects under weinkes/)
     Type: String
-  CreateOauthTables:
-    Description: Set to "true" on first deploy to create OAuth tables; leave "false" for normal deploys
-    Type: String
-    Default: "false"
-    AllowedValues:
-      - "true"
-      - "false"
   ExtendScheduleDeployNonce:
     Type: String
     Default: "no-extend"
@@ -230,7 +223,6 @@ Resources:
           DEFAULT_EVENT_END: !Ref DefaultEventEnd
           DEFAULT_EVENT_DURATION_MINUTES: !Ref DefaultEventDurationMinutes
           ENV_SLACK_CLIENT_ID: !Ref SlackClientId
-          CREATE_OAUTH_TABLES: !Ref CreateOauthTables
           IMAGE_S3_BUCKET: !Ref ImageBucketName
           # STRAVA_CLIENT_ID: !Ref StravaClientID
           # STRAVA_CLIENT_SECRET: !Ref StravaClientSecret

@@ -42,17 +42,17 @@ def _seed(code: str) -> dict:
 
 
 def test_assert_test_only_accepts_test_schemas():
-    seeder.assert_test_only("f3ttown_test", "paxminer_test")
+    seeder.assert_test_only("f3ttown_test", "f3ttown_test")
 
 
 def test_assert_test_only_rejects_prod_regional():
     with pytest.raises(SystemExit, match="non-test regional"):
-        seeder.assert_test_only("f3ttown_prod", "paxminer_test")
+        seeder.assert_test_only("f3ttown_prod", "f3ttown_test")
 
 
 def test_assert_test_only_rejects_prod_in_name():
     with pytest.raises(SystemExit, match="prod"):
-        seeder.assert_test_only("f3prod_test", "paxminer_test")
+        seeder.assert_test_only("f3prod_test", "f3ttown_test")
 
 
 def test_assert_test_only_rejects_prod_registry():
@@ -286,18 +286,11 @@ def test_plan_unknown_goal_raises():
         )
 
 
-def test_awarded_ddl_no_fk_omits_references():
-    ddl = seeder._ACHIEVEMENTS_AWARDED_DDL_NO_FK.format(schema="f3ttown_test")
-    assert "FOREIGN KEY" not in ddl.upper()
-    assert "REFERENCES" not in ddl.upper()
-    assert "achievements_awarded" in ddl
-
-
-# ---- DDL privilege tolerance -------------------------------------------------
+# ---- schema check ------------------------------------------------------------
 
 
 class _DenyingCursor:
-    """Cursor that reports objects exist, and denies any DDL."""
+    """Cursor that reports whether objects exist, and denies any DDL."""
 
     def __init__(self, *, exists: bool = True, errno: int = 1142):
         self.exists = exists
@@ -429,54 +422,27 @@ def test_load_qsignups_aos_returns_empty_on_error():
         def cursor(self):
             raise RuntimeError("no access")
 
-    assert seeder.load_qsignups_aos(Boom(), "qsignups_test", "T1") == []
+    assert seeder.load_qsignups_aos(Boom(), "f3ttown_test", "T1") == []
 
 
-def test_attendance_view_ddl_matches_migrated_shape():
-    """Consumers do SELECT * (PAXcharter), so columns/joins must match prod."""
-    ddl = seeder.ATTENDANCE_VIEW_DDL.format(schema="f3ttown_test")
-    for col in ("`Date`", "`AO`", "`PAX`", "`Q`"):
-        assert col in ddl
-    # Q comes from a second users join; inner joins would drop rows prod keeps.
-    assert ddl.upper().count("LEFT JOIN") == 3
-    assert "bd.q_user_id = q.user_id" in ddl
-
-
-def test_is_permission_denied_detects_1142_and_message():
-    import pymysql
-
-    assert seeder._is_permission_denied(
-        pymysql.err.OperationalError(1142, "CREATE VIEW command denied to user")
-    )
-    assert seeder._is_permission_denied(Exception("REFERENCES command denied to user"))
-    assert not seeder._is_permission_denied(Exception("some other failure"))
-
-
-def test_try_ddl_returns_false_when_denied():
-    cur = _DenyingCursor()
-    assert seeder._try_ddl(cur, "CREATE VIEW x AS SELECT 1", "x") is False
-
-
-def test_try_ddl_reraises_non_permission_errors():
-    class Boom:
-        def execute(self, sql, params=None):
-            raise RuntimeError("syntax error")
-
-    with pytest.raises(RuntimeError, match="syntax error"):
-        seeder._try_ddl(Boom(), "CREATE VIEW x AS SELECT 1", "x")
-
-
-def test_existing_views_are_not_recreated():
+def test_require_schema_passes_without_ddl():
     cur = _DenyingCursor(exists=True)
-    assert seeder._view_exists(cur, "f3ttown_test", "attendance_view") is True
+    seeder.require_schema(cur, "f3ttown_test")
     assert cur.ddl_attempts == []
 
 
-def test_missing_view_attempt_is_tolerated():
+def test_require_schema_stops_and_points_at_the_runner():
     cur = _DenyingCursor(exists=False)
-    assert seeder._view_exists(cur, "f3ttown_test", "attendance_view") is False
-    assert seeder._try_ddl(cur, "CREATE VIEW v AS SELECT 1", "v") is False
-    assert len(cur.ddl_attempts) == 1
+    with pytest.raises(SystemExit, match="db/migrate.py"):
+        seeder.require_schema(cur, "f3ttown_test")
+    assert cur.ddl_attempts == []
+
+
+def test_seeder_has_no_table_or_view_ddl():
+    """db/migrations is the only source of tables and views (retire-copies)."""
+    source = Path(seeder.__file__).read_text(encoding="utf-8").upper()
+    for ddl in ("CREATE TABLE", "CREATE OR REPLACE VIEW", "CREATE VIEW", "ALTER TABLE"):
+        assert ddl not in source
 
 
 # ---- pool / baseline / overlay ------------------------------------------------
@@ -718,17 +684,18 @@ def test_pick_new_q_reassigns_after_q_removed():
     assert seeder.pick_new_q([], "U1", "U1") is None
 
 
-def test_ensure_achievement_tables_insert_writes_varchar_mirror():
+def test_ensure_achievement_catalog_inserts_mirror_and_version():
     from unittest.mock import MagicMock, patch
 
     cur = MagicMock()
     cur.fetchone.return_value = None
+    cur.lastrowid = 7
     with (
-        patch.object(seeder, "_table_exists", return_value=True),
-        patch.object(seeder, "_view_exists", return_value=True),
-        patch("paxminer_phases.achievements.migrate_regional_schema"),
+        patch.object(seeder, "require_schema") as require,
+        patch("achievements.versions.insert_version") as insert_version,
     ):
-        seeder.ensure_achievement_tables(cur, "f3ttown_test")
+        seeder.ensure_achievement_catalog(cur, "f3ttown_test")
+    require.assert_called_once_with(cur, "f3ttown_test")
     inserts = [
         c
         for c in cur.execute.call_args_list
@@ -741,3 +708,22 @@ def test_ensure_achievement_tables_insert_writes_varchar_mirror():
         activity = call.args[1][5]
         assert isinstance(activity, str)
         assert not isinstance(activity, dict)
+    assert insert_version.call_count == len(inserts)
+    kwargs = insert_version.call_args.kwargs
+    assert kwargs["achievement_id"] == 7
+    assert kwargs["version"] == 1
+    assert kwargs["range_mode"] == "all_attendance"
+
+
+def test_ensure_achievement_catalog_skips_versioned_rows():
+    from unittest.mock import MagicMock, patch
+
+    cur = MagicMock()
+    cur.fetchone.return_value = {"id": 3}
+    with (
+        patch.object(seeder, "require_schema"),
+        patch("achievements.versions.insert_version") as insert_version,
+    ):
+        seeder.ensure_achievement_catalog(cur, "f3ttown_test")
+    insert_version.assert_not_called()
+    assert not any("INSERT INTO" in str(c.args[0]) for c in cur.execute.call_args_list)

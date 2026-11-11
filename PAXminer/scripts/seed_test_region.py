@@ -40,8 +40,6 @@ _PAX_ROOT = Path(__file__).resolve().parent.parent
 _REPO_ROOT = _PAX_ROOT.parent
 if str(_PAX_ROOT) not in sys.path:
     sys.path.insert(0, str(_PAX_ROOT))
-if str(_REPO_ROOT / "migration") not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT / "migration"))
 
 LOG = logging.getLogger("seed_test_region")
 
@@ -57,23 +55,6 @@ SEED_JSON = '{"seed": true}'
 LEGACY_SYNTHETIC_USER_PREFIX = "USEEDPAX"
 LEGACY_FILLER_Q_USER_ID = "USEEDFILLER0XX"
 DEPLOY_ENV_FILE = _REPO_ROOT / ".env.deploy.test"
-
-# Mirrors the national PAXMiner attendance_view that migration copies, including
-# the Q column and LEFT JOINs — consumers do SELECT * (e.g. PAXcharter.py).
-ATTENDANCE_VIEW_DDL = """
-CREATE OR REPLACE VIEW `{schema}`.`attendance_view` AS
-SELECT
-  bd.date AS `Date`,
-  ao.ao AS `AO`,
-  u.user_name AS `PAX`,
-  q.user_name AS `Q`
-FROM `{schema}`.`bd_attendance` bd
-LEFT JOIN `{schema}`.`aos` ao ON bd.ao_id = ao.channel_id
-LEFT JOIN `{schema}`.`users` u ON bd.user_id = u.user_id
-LEFT JOIN `{schema}`.`users` q ON bd.q_user_id = q.user_id
-ORDER BY bd.date DESC, ao.ao
-"""
-
 
 # ---------------------------------------------------------------------------
 # Env + safety guards
@@ -1015,22 +996,6 @@ def _table_exists(cur, schema: str, table: str) -> bool:
     return cur.fetchone() is not None
 
 
-# TiDB Cloud app users often lack REFERENCES; seeder DDL omits the FK.
-_ACHIEVEMENTS_AWARDED_DDL_NO_FK = """
-CREATE TABLE IF NOT EXISTS `{schema}`.`achievements_awarded` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `achievement_id` int NOT NULL,
-  `pax_id` varchar(255) NOT NULL,
-  `date_awarded` date NOT NULL,
-  `created` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `achievement_id` (`achievement_id`),
-  KEY `pax_id` (`pax_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-"""
-
-
 def _view_exists(cur, schema: str, view: str) -> bool:
     cur.execute(
         """
@@ -1041,31 +1006,6 @@ def _view_exists(cur, schema: str, view: str) -> bool:
         (schema, view),
     )
     return cur.fetchone() is not None
-
-
-def _is_permission_denied(exc: Exception) -> bool:
-    args = getattr(exc, "args", ())
-    if args and args[0] in (1044, 1045, 1142, 1227):
-        return True
-    return "command denied" in str(exc).lower()
-
-
-def _try_ddl(cur, sql: str, what: str) -> bool:
-    """Run DDL, tolerating the app DB user's missing privileges."""
-    try:
-        cur.execute(sql)
-    except Exception as exc:
-        if _is_permission_denied(exc):
-            LOG.warning(
-                "Cannot create %s as this DB user (%s). Run the migration with "
-                "privileged credentials if it is actually missing.",
-                what,
-                exc,
-            )
-            return False
-        raise
-    LOG.info("Created %s", what)
-    return True
 
 
 def load_qsignups_aos(conn, qs_schema: str, team_id: str) -> list[tuple[str, str]]:
@@ -1118,47 +1058,85 @@ def select_ao_candidates(
     return list(slack_channels), "slack_channels", []
 
 
-def ensure_achievement_tables(cur, schema: str) -> None:
-    from achievements.achievement_rules import (
-        ACHIEVEMENTS_LIST_DDL,
-        ACHIEVEMENTS_VIEW_DDL,
-        ACHIEVEMENT_SEEDS,
+# db/migrations creates these; the seeder only writes rows.
+REQUIRED_OBJECTS = (
+    "achievements_list",
+    "achievements_awarded",
+    "achievement_versions",
+    "achievements_view",
+    "attendance_view",
+)
+
+
+def require_schema(cur, schema: str) -> None:
+    """Stop when the schema was not built by db/migrate.py. Creates nothing."""
+    missing = [
+        name
+        for name in REQUIRED_OBJECTS
+        if not (
+            _view_exists(cur, schema, name)
+            if name.endswith("_view")
+            else _table_exists(cur, schema, name)
+        )
+    ]
+    if missing:
+        raise SystemExit(
+            f"{schema} is missing {', '.join(missing)}. Build it with db/migrate.py "
+            "and db/fresh_install.py first (docs/DEPLOY.md, New region database)."
+        )
+
+
+def _has_version(cur, schema: str, achievement_id: int) -> bool:
+    cur.execute(
+        f"SELECT 1 FROM `{schema}`.`achievement_versions` WHERE achievement_id=%s LIMIT 1",
+        (achievement_id,),
+    )
+    return cur.fetchone() is not None
+
+
+def _insert_seed_version(cur, schema: str, achievement_id: int, seed: dict) -> None:
+    """Version 1 over all attendance, as db/fresh_install.py seeds it."""
+    from achievements.range import resolve_stored_range
+    from achievements.versions import insert_version
+
+    today = date.today().isoformat()
+    mode, from_date, to_date = resolve_stored_range(
+        {"range_mode": "all_attendance"},
+        first_created=today,
+        version_created=today,
+        minting=False,
+    )
+    insert_version(
+        cur,
+        schema,
+        achievement_id=achievement_id,
+        code=seed["code"],
+        metric=seed["metric"],
+        activity_filter=activity_filter_from_rule(seed),
+        period=seed["period"],
+        threshold=int(seed["threshold"]),
+        effective_from=date.fromisoformat(from_date) if from_date else None,
+        effective_to=date.fromisoformat(to_date) if to_date else None,
+        created_by="seed_test_region",
+        version=1,
+        range_mode=mode,
     )
 
-    if not _table_exists(cur, schema, "achievements_list"):
-        if not _try_ddl(
-            cur, ACHIEVEMENTS_LIST_DDL.format(schema=schema), f"{schema}.achievements_list"
-        ):
-            raise SystemExit(
-                f"{schema}.achievements_list is missing and this DB user cannot "
-                "create it. Run the PAXMiner migration first."
-            )
-    if not _table_exists(cur, schema, "achievements_awarded"):
-        # Omit the FOREIGN KEY — app users typically lack REFERENCES.
-        if not _try_ddl(
-            cur,
-            _ACHIEVEMENTS_AWARDED_DDL_NO_FK.format(schema=schema),
-            f"{schema}.achievements_awarded",
-        ):
-            raise SystemExit(
-                f"{schema}.achievements_awarded is missing and this DB user cannot "
-                "create it. Run the PAXMiner migration first."
-            )
-    # Views usually already exist; creating them needs CREATE VIEW, which the
-    # app user lacks, so only attempt when actually missing.
-    for view, ddl in (
-        ("achievements_view", ACHIEVEMENTS_VIEW_DDL),
-        ("attendance_view", ATTENDANCE_VIEW_DDL),
-    ):
-        if not _view_exists(cur, schema, view):
-            _try_ddl(cur, ddl.format(schema=schema), f"{schema}.{view}")
+
+def ensure_achievement_catalog(cur, schema: str) -> None:
+    """Upsert the default achievements and give each one a version."""
+    from achievements.achievement_rules import ACHIEVEMENT_SEEDS
+
+    require_schema(cur, schema)
     for seed in ACHIEVEMENT_SEEDS:
+        mirror = activity_legacy_mirror(activity_filter_from_rule(seed), version=1)
         cur.execute(
             f"SELECT id FROM `{schema}`.`achievements_list` WHERE code=%s",
             (seed["code"],),
         )
         existing = cur.fetchone()
         if existing:
+            achievement_id = int(existing["id"])
             cur.execute(
                 f"""
                 UPDATE `{schema}`.`achievements_list`
@@ -1171,6 +1149,17 @@ def ensure_achievement_tables(cur, schema: str) -> None:
                     seed["verb"],
                     seed["code"],
                 ),
+            )
+            if _has_version(cur, schema, achievement_id):
+                continue
+            # An unversioned row takes the seed's rule, so list and version agree.
+            cur.execute(
+                f"""
+                UPDATE `{schema}`.`achievements_list`
+                SET metric=%s, activity=%s, period=%s, threshold=%s
+                WHERE id=%s
+                """,
+                (seed["metric"], mirror, seed["period"], seed["threshold"], achievement_id),
             )
         else:
             cur.execute(
@@ -1185,17 +1174,13 @@ def ensure_achievement_tables(cur, schema: str) -> None:
                     seed["verb"],
                     seed["code"],
                     seed["metric"],
-                    activity_legacy_mirror(activity_filter_from_rule(seed), version=1),
+                    mirror,
                     seed["period"],
                     seed["threshold"],
                 ),
             )
-    try:
-        from paxminer_phases.achievements import migrate_regional_schema
-
-        migrate_regional_schema(cur, schema)
-    except Exception:
-        LOG.warning("achievements versioning migrate skipped for %s", schema, exc_info=True)
+            achievement_id = int(cur.lastrowid)
+        _insert_seed_version(cur, schema, achievement_id, seed)
 
 
 def load_achievement_catalog(cur, schema: str) -> list[dict]:
@@ -2338,7 +2323,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         with conn.cursor() as cur:
-            ensure_achievement_tables(cur, regional_schema)
+            ensure_achievement_catalog(cur, regional_schema)
             catalog = load_achievement_catalog(cur, regional_schema)
         conn.commit()
 

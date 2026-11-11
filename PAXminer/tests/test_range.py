@@ -12,7 +12,6 @@ from achievements.range import (
     RANGE_SINCE_RULES_CHANGED,
     REEVAL_STALE_AFTER,
     backfill_range_mode,
-    ensure_achievement_range_columns,
     hold_prior_version_awards,
     normalize_range_mode,
     range_validation_errors,
@@ -133,25 +132,15 @@ def test_backfill_range_mode_sql_and_idempotent_rerun():
     assert backfill_range_mode(cur, "f3test") == 0
 
 
-def test_ensure_columns_alters_when_missing():
+def test_try_acquire_reeval_lock_runs_no_ddl():
+    """0001 creates reeval_queued_at, so taking the lock only reads and writes rows."""
     cur = MagicMock()
-    cur.fetchone.return_value = {"c": 0}
-    added = ensure_achievement_range_columns(cur, "f3test")
-    assert added["range_mode"] is True
-    assert added["reeval_queued_at"] is True
-    assert added["emoji"] is True
-    joined = " ".join(str(c) for c in cur.execute.call_args_list)
-    assert "ADD COLUMN `range_mode`" in joined
-    assert "ADD COLUMN `reeval_queued_at`" in joined
-    assert "ADD COLUMN `emoji`" in joined
-
-
-def test_ensure_columns_is_a_noop_when_present():
-    cur = MagicMock()
-    cur.fetchone.return_value = {"c": 1}
-    added = ensure_achievement_range_columns(cur, "f3test")
-    assert added == {"range_mode": False, "reeval_queued_at": False, "emoji": False}
-    assert not any("ADD COLUMN" in str(c) for c in cur.execute.call_args_list)
+    cur.fetchone.return_value = {"reeval_queued_at": None}
+    ok, _ = try_acquire_reeval_lock(cur, "f3test", 3, now=datetime(2026, 8, 19, 12, 0, 0))
+    assert ok is True
+    sql = " ".join(str(c) for c in cur.execute.call_args_list)
+    assert "ALTER TABLE" not in sql
+    assert "information_schema" not in sql
 
 
 def test_try_acquire_rejects_fresh_lock_and_overrides_stale():
