@@ -37,11 +37,6 @@ _LEGACY_RANGE_MODES = {
 
 REEVAL_STALE_AFTER = timedelta(minutes=15)
 
-_RANGE_MODE_COL = "varchar(24) DEFAULT NULL"
-_REEVAL_QUEUED_COL = "datetime DEFAULT NULL"
-_EMOJI_COL = "varchar(64) DEFAULT NULL"
-
-
 def normalize_range_mode(mode: str | None, *, effective_from=None) -> str:
     """Map stored/submitted mode onto one of the four canonical values."""
     raw = (mode or "").strip()
@@ -250,70 +245,6 @@ def window_narrowed(old_from, old_to, new_from, new_to) -> bool:
     return start_later or end_earlier
 
 
-def _column_exists(cur, schema: str, table: str, column: str) -> bool:
-    cur.execute(
-        """
-        SELECT COUNT(*) AS c FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s AND COLUMN_NAME=%s
-        """,
-        (schema, table, column),
-    )
-    row = cur.fetchone() or {}
-    return int(row.get("c") or 0) > 0
-
-
-def ensure_range_mode_column(cur, schema: str) -> bool:
-    """Add nullable achievement_versions.range_mode if missing."""
-    if _column_exists(cur, schema, "achievement_versions", "range_mode"):
-        return False
-    cur.execute(
-        f"ALTER TABLE `{schema}`.`achievement_versions` "
-        f"ADD COLUMN `range_mode` {_RANGE_MODE_COL}"
-    )
-    return True
-
-
-def ensure_reeval_queued_at_column(cur, schema: str) -> bool:
-    """Add nullable achievements_list.reeval_queued_at if missing."""
-    if _column_exists(cur, schema, "achievements_list", "reeval_queued_at"):
-        return False
-    cur.execute(
-        f"ALTER TABLE `{schema}`.`achievements_list` "
-        f"ADD COLUMN `reeval_queued_at` {_REEVAL_QUEUED_COL}"
-    )
-    return True
-
-
-def has_emoji_column(cur, schema: str) -> bool:
-    """Whether achievements_list.emoji exists. Read paths gate on this."""
-    return _column_exists(cur, schema, "achievements_list", "emoji")
-
-
-def ensure_emoji_column(cur, schema: str) -> bool:
-    """Add nullable achievements_list.emoji if missing."""
-    if has_emoji_column(cur, schema):
-        return False
-    cur.execute(
-        f"ALTER TABLE `{schema}`.`achievements_list` "
-        f"ADD COLUMN `emoji` {_EMOJI_COL}"
-    )
-    return True
-
-
-def ensure_achievement_range_columns(cur, schema: str) -> dict[str, bool]:
-    """Self-heal the admin-path columns the migration adds.
-
-    Named for range mode, but it covers every ``achievements_list`` column the
-    edit and re-evaluate paths write, so a region on a pre-migration schema can
-    still save. Adding one here beats adding a call site (see 5f).
-    """
-    return {
-        "range_mode": ensure_range_mode_column(cur, schema),
-        "reeval_queued_at": ensure_reeval_queued_at_column(cur, schema),
-        "emoji": ensure_emoji_column(cur, schema),
-    }
-
-
 def backfill_range_mode(cur, schema: str) -> int:
     """NULL effective_from → all_attendance, otherwise custom. Skips rows that already have a mode."""
     cur.execute(
@@ -356,7 +287,6 @@ def try_acquire_reeval_lock(
     cur, schema: str, achievement_id: int, *, now: datetime | None = None
 ) -> tuple[bool, str | None]:
     """Lock this achievement's re-evaluate. Returns ``(ok, rejection_message)``."""
-    ensure_reeval_queued_at_column(cur, schema)
     now = now or datetime.utcnow()
     cur.execute(
         f"""

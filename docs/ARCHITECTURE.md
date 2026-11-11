@@ -22,43 +22,44 @@ Apps do **not** import each other’s Python packages; integration is via **shar
 
 ## Database and schemas
 
-- **Per-app schemas** (suffix `_test` / `_prod`): `paxminer_*`, `slackblast_*`, `qsignups_*`.
-- **Per-region schemas** (PAXminer regional data): e.g. `yourregion_prod` — tables such as `aos`, `beatdowns`, `bd_attendance`, `users`.
-- **Registry:** `paxminer_<stage>.regions` lists regions and points at regional schema names and encrypted Slack tokens.
+- **One schema per region and stage:** `{F3_REGION_NAME}_{STAGE}`, e.g. `yourregion_prod`. PAXMiner, slackblast and qsignups all read it. `db/migrations` creates every table and view in it.
+- **Region row:** `region_config` holds the region's settings, schema name and encrypted Slack tokens.
 
 ### Relational overview (conceptual)
 
 ```mermaid
 flowchart LR
-  subgraph app_schemas [App schemas]
-    PM[paxminer_stage]
-    SB[slackblast_stage]
-    QS[qsignups_stage]
+  subgraph region [Region schema yourregion_stage]
+    RC[region_config]
+    AOS[aos beatdowns bd_attendance]
+    REP[region_report_definitions region_schedules]
+    ACH[achievements_list awarded versions]
+    QS[qsignups_aos weekly master regions features]
+    OAUTH[slack_bots installations oauth_states]
   end
-  subgraph regional [Regional schema e.g. f3town_stage]
-    AOS[aos]
-    BD[beatdowns]
-    ATT[bd_attendance]
-  end
-  PM -->|region_config.schema_name| regional
-  SB -->|region_config + achievements webhook URL| PM
-  SB -->|Slack config| regional
-  QS -->|aos and beatdowns in DATABASE_SCHEMA| AOS
-  QS -->|schedule data| QSMASTER[qsignups_master weekly aos regions]
+  PM[PAXMiner] --> RC
+  PM --> REP
+  PM --> ACH
+  SB[slackblast] --> AOS
+  SB --> OAUTH
+  QSAPP[qsignups] --> QS
+  QSAPP --> AOS
 ```
 
-### QSignups (app schema)
+### QSignups
+
+These tables live in the region schema:
 
 - **`qsignups_aos`**, **`qsignups_weekly`**, **`qsignups_master`**, **`qsignups_regions`**, **`qsignups_features`**
 - **Views:** `vw_master_events`, `vw_weekly_events`, `vw_aos_sort`
-- **OAuth (Bolt):** `slack_bots`, `slack_installations`, `slack_oauth_states` in the same schema as the app
+- **OAuth (Bolt):** `slack_bots`, `slack_installations`, `slack_oauth_states`
 
 ### slackblast
 
-- Uses **regional** schema for `beatdowns` / `bd_attendance` (ORM `Backblast` / `Attendance`) plus app schema for config, Strava tokens, etc.
-- **Retry receipts** (admin schema `slackblast_<stage>`), same idea as two small lock tables:
+- Uses the region schema for `beatdowns` / `bd_attendance` (ORM `Backblast` / `Attendance`), Slack config, and Strava tokens.
+- **Retry receipts** (in the region schema), same idea as two small lock tables:
   - **`welcome_deliveries`** — Slack Events API `team_join` (`event_id` + destination). Stops duplicate welcome DMs/channel posts.
-  - **`interaction_claims`** — Slack interactivity `view_submission` (`view.id` + kind: backblast / preblast / strava). Slack retries the same submit when ack exceeds ~3s; each retry is a new Lambda. `beatdowns` / `bd_attendance` uniqueness needs Slack’s message `ts` from `chat_postMessage`, so those PKs cannot lock **before** the channel write. INSERT claim → post; 1062 → skip. Rows older than 7 days are deleted on each claim (own transaction, so a duplicate INSERT does not undo the purge). Do not delete on success — retries still need the row. Missing table fails closed (does not post). Code: [`slackblast/slackblast/utilities/interaction_claims.py`](../slackblast/slackblast/utilities/interaction_claims.py). Create on existing stages with `python migration/migrate_data.py --env <stage> --bootstrap-only` **before** deploying the Lambda that writes it.
+  - **`interaction_claims`** — Slack interactivity `view_submission` (`view.id` + kind: backblast / preblast / strava). Slack retries the same submit when ack exceeds ~3s; each retry is a new Lambda. `beatdowns` / `bd_attendance` uniqueness needs Slack’s message `ts` from `chat_postMessage`, so those PKs cannot lock **before** the channel write. INSERT claim → post; 1062 → skip. Rows older than 7 days are deleted on each claim (own transaction, so a duplicate INSERT does not undo the purge). Do not delete on success — retries still need the row. Missing table fails closed (does not post). Code: [`slackblast/slackblast/utilities/interaction_claims.py`](../slackblast/slackblast/utilities/interaction_claims.py). `db/migrations/0001_baseline.sql` creates both tables.
 
 ### Encryption
 
