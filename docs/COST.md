@@ -54,27 +54,7 @@ Measured from Cost Explorer 2026-08-21, usage records only (credits excluded):
 while real usage is roughly **$3.85/month**. When the credits lapse, that is the
 bill. Two line items account for essentially all of it.
 
-### 1. An orphaned Lambda SnapStart snapshot (~$2.00/month)
-
-Usage type `Lambda-SnapStart-Cached-GB-S`, about 1.3 million GB-seconds a month.
-
-`slackblast-prod-SlackblastFunction` **version 1**, published 2026-04-01, has
-`SnapStart.ApplyOn=PublishedVersions` and `OptimizationStatus=On` at 512 MB —
-roughly half a gigabyte of snapshot cached continuously.
-
-SnapStart was added in commit `e9c4cd1` and later dropped from the template, but
-**removing SnapStart from a template does not delete already-published
-versions**, and a published version keeps its own configuration forever. `$LATEST`
-reports `ApplyOn=None` while version 1 quietly keeps billing.
-
-Nothing uses version 1: there are no aliases, and both the Function URL and the
-resource policy target the unqualified ARN, which resolves to `$LATEST`.
-Deleting that version stops the charge, and it cannot come back because no
-template enables SnapStart now.
-
-**Rule going forward:** if a function ever publishes versions, deleting the
-feature from the template is not enough — the old versions have to be deleted
-too.
+SnapStart is off. An old published version once kept a snapshot after the template dropped the feature; that version is gone, and the charge is historical. Deleting the feature from a template does not delete an already published version.
 
 ### 2. ECR image storage (~$1.80-2.00/month)
 
@@ -118,7 +98,7 @@ tag-prefix lifecycle rule if its SAM tag prefix is new. Redeploy bootstrap
 before the app when the lifecycle rule changes. The deploy fails with a clear
 message if `EcrRepositoryBase` is missing.
 
-There is no separate Weaselbot stack left in this account. Do not go looking
+The old extra application stack is gone from this account. Do not go looking
 for those repositories.
 
 ## Everything else

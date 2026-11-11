@@ -34,6 +34,9 @@ concurrency:
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     outputs:
       run_paxminer: ${{ steps.pick.outputs.run_paxminer }}
       run_slackblast: ${{ steps.pick.outputs.run_slackblast }}
@@ -43,13 +46,35 @@ jobs:
         with:
           fetch-depth: 0
 
+      - id: deploy-base
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # A cancelled run's files are not in github.event.before of the next
+          # push. Diff from the last successful deploy so those files still ship.
+          sha=$(gh run list \
+            --workflow deploy.yml \
+            --branch "${{ github.ref_name }}" \
+            --status success \
+            --event push \
+            --limit 20 \
+            --json headSha \
+            --jq '[.[] | select(.headSha != "${{ github.sha }}")][0].headSha // empty')
+          if [[ -z "$sha" ]]; then
+            echo "has_base=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_base=true" >> "$GITHUB_OUTPUT"
+            echo "base=$sha" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: dorny/paths-filter@v4
         id: filter
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && steps.deploy-base.outputs.has_base == 'true'
         with:
-          # Compare to the previous tip of this branch, not the merge commit's
-          # empty first-parent diff. Otherwise main→prod merge commits skip every stack.
-          base: ${{ github.event.before }}
+          # Compare to the last successful deploy, not only the previous tip.
+          base: ${{ steps.deploy-base.outputs.base }}
           filters: |
             paxminer:
               - 'PAXminer/**'
@@ -80,6 +105,10 @@ jobs:
             echo "run_paxminer=$PM" >> "$GITHUB_OUTPUT"
             echo "run_slackblast=$SB" >> "$GITHUB_OUTPUT"
             echo "run_qsignups=$QS" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ steps.deploy-base.outputs.has_base }}" != "true" ]]; then
+            echo "run_paxminer=true" >> "$GITHUB_OUTPUT"
+            echo "run_slackblast=true" >> "$GITHUB_OUTPUT"
+            echo "run_qsignups=true" >> "$GITHUB_OUTPUT"
           else
             INFRA="${{ steps.filter.outputs.infra }}"
             if [[ "$INFRA" == "true" ]]; then
