@@ -905,3 +905,12 @@ def test_format_backblast_paxminer_log_shapes():
         summary_lines=[],
     )
     assert "```" not in no_block
+
+
+def test_message_event_payload_returns_only_a_dict():
+    payload = {"the_q": "U1"}
+    assert helper_functions.message_event_payload(
+        {"message": {"metadata": {"event_payload": payload}}}
+    ) == payload
+    assert helper_functions.message_event_payload({}) == {}
+    assert helper_functions.message_event_payload({"message": {"metadata": {"event_payload": "edit"}}}) == {}

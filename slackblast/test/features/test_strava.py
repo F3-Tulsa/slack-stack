@@ -86,3 +86,52 @@ def test_strava_view_closed_does_not_post_or_claim():
     fetch.assert_not_called()
     claim.assert_not_called()
     client.chat_postMessage.assert_not_called()
+
+
+def _strava_body(*, payload=None):
+    message = {
+        "ts": "1.2",
+        "blocks": [{"type": "actions", "elements": [{"value": "edit"}]}],
+    }
+    if payload is not None:
+        message["metadata"] = {"event_type": "backblast", "event_payload": payload}
+    return {"user_id": "U_CLICK", "channel_id": "C1", "team_id": "T1", "message": message}
+
+
+def test_strava_allows_original_poster_when_coq_is_missing():
+    client = MagicMock()
+    oauth = MagicMock()
+    oauth.authorization_url.return_value = ("https://strava.example/authorize", "state")
+    with (
+        patch.dict(os.environ, {"IMAGE_S3_BUCKET": "images", "STRAVA_CLIENT_ID": "client"}),
+        patch("features.strava.OAuth2Session", return_value=oauth),
+        patch("features.strava.DbManager.find_records", return_value=[]),
+        patch("utilities.slack.orm.BlockView.update_modal") as update_modal,
+    ):
+        strava.build_strava_form(
+            _strava_body(
+                payload={
+                    actions.BACKBLAST_Q: "U_Q",
+                    actions.BACKBLAST_COQ: None,
+                    actions.BACKBLAST_OP: "U_CLICK",
+                    "title": "Beatdown",
+                }
+            ),
+            client,
+            MagicMock(),
+            {},
+            MagicMock(),
+        )
+    update_modal.assert_called_once()
+
+
+def test_strava_without_metadata_does_not_parse_the_button_value():
+    client = MagicMock()
+    oauth = MagicMock()
+    oauth.authorization_url.return_value = ("https://strava.example/authorize", "state")
+    with (
+        patch.dict(os.environ, {"IMAGE_S3_BUCKET": "images", "STRAVA_CLIENT_ID": "client"}),
+        patch("features.strava.OAuth2Session", return_value=oauth),
+    ):
+        strava.build_strava_form(_strava_body(), client, MagicMock(), {}, MagicMock())
+    client.chat_postEphemeral.assert_called_once()

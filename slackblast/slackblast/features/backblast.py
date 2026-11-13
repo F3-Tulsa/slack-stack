@@ -25,6 +25,7 @@ from utilities.helper_functions import (
     get_user_names,
     parse_rich_block,
     plain_text_to_rich_block,
+    message_event_payload,
     remove_keys_from_dict,
     replace_user_channel_ids,
     safe_get,
@@ -164,17 +165,15 @@ def build_backblast_form(body: dict, client: WebClient, logger: Logger, context:
     elif (safe_get(body, "view", "callback_id") == actions.BACKBLAST_EDIT_CALLBACK_ID) or (
         safe_get(body, "actions", 0, "action_id") == actions.BACKBLAST_EDIT_BUTTON
     ):
-        initial_backblast_data = safe_get(body, "message", "metadata", "event_payload") or json.loads(
-            safe_get(body, "actions", 0, "value") or "{}"
-        )
+        initial_backblast_data = message_event_payload(body)
         if not safe_get(initial_backblast_data, actions.BACKBLAST_MOLESKIN):
             moleskin_block = safe_get(body, "message", "blocks", 1)
             moleskin_block = remove_keys_from_dict(moleskin_block, ["display_team_id", "display_url"])
-            if moleskin_block.get("type") == "section":
+            if isinstance(moleskin_block, dict) and moleskin_block.get("type") == "section":
                 initial_backblast_data[actions.BACKBLAST_MOLESKIN] = plain_text_to_rich_block(
                     moleskin_block["text"]["text"]
                 )
-            else:
+            elif isinstance(moleskin_block, dict):
                 initial_backblast_data[actions.BACKBLAST_MOLESKIN] = moleskin_block
             # initial_backblast_data[actions.BACKBLAST_MOLESKIN] = replace_slack_user_ids(
             #     initial_backblast_data[actions.BACKBLAST_MOLESKIN], client, logger, region_record
@@ -898,18 +897,16 @@ def handle_backblast_edit_button(body: dict, client: WebClient, logger: Logger, 
     user_id = safe_get(body, "user_id") or safe_get(body, "user", "id")
     channel_id = safe_get(body, "channel_id") or safe_get(body, "channel", "id")
 
-    backblast_data = safe_get(body, "message", "metadata", "event_payload") or json.loads(
-        safe_get(body, "actions", 0, "value") or "{}"
-    )
+    backblast_data = message_event_payload(body)
 
     user_info_dict = client.users_info(user=user_id)
     user_admin: bool = user_info_dict["user"]["is_admin"]
     allow_edit: bool = (
         (region_record.editing_locked == 0)
         or user_admin
-        or (user_id == backblast_data[actions.BACKBLAST_Q])
-        or (user_id in backblast_data[actions.BACKBLAST_COQ] or [])
-        or (user_id in backblast_data[actions.BACKBLAST_OP])
+        or (user_id == backblast_data.get(actions.BACKBLAST_Q))
+        or (user_id in (backblast_data.get(actions.BACKBLAST_COQ) or []))
+        or (user_id == backblast_data.get(actions.BACKBLAST_OP))
     )
 
     if allow_edit:
