@@ -1,5 +1,6 @@
 import os
 import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "slackblast"))
@@ -56,3 +57,66 @@ def test_retried_preblast_create_posts_once():
             preblast.handle_preblast_post(body, client, MagicMock(), {}, region)
 
     assert client.chat_postMessage.call_count == 1
+
+
+def _edit_click(*, payload=None, value="edit"):
+    message = {"ts": "1.1"}
+    if payload is not None:
+        message["metadata"] = {"event_type": "preblast", "event_payload": payload}
+    return {
+        "user_id": "U_CLICK",
+        "channel_id": "C1",
+        "actions": [{"action_id": actions.PREBLAST_EDIT_BUTTON, "value": value}],
+        "message": message,
+        "loading_id": "V_LOAD",
+    }
+
+
+def _region(*, locked):
+    return SimpleNamespace(editing_locked=locked, preblast_moleskin_template="")
+
+
+def _client():
+    client = MagicMock()
+    client.users_info.return_value = {"user": {"is_admin": False}}
+    return client
+
+
+def test_locked_preblast_edit_allows_original_poster():
+    client = _client()
+    with patch("features.preblast.build_preblast_form") as build:
+        preblast.handle_preblast_edit_button(
+            _edit_click(payload={actions.PREBLAST_Q: "U_Q", actions.PREBLAST_OP: "U_CLICK"}),
+            client,
+            MagicMock(),
+            {},
+            _region(locked=1),
+        )
+    build.assert_called_once()
+
+
+def test_locked_preblast_edit_without_metadata_does_not_parse_the_button_value():
+    client = _client()
+    with patch("features.preblast.build_preblast_form") as build:
+        preblast.handle_preblast_edit_button(
+            _edit_click(value="edit"),
+            client,
+            MagicMock(),
+            {},
+            _region(locked=1),
+        )
+    build.assert_not_called()
+    client.chat_postEphemeral.assert_called_once()
+
+
+def test_unlocked_preblast_edit_without_metadata_opens_the_form():
+    client = _client()
+    with patch("utilities.slack.orm.BlockView.update_modal") as update_modal:
+        preblast.handle_preblast_edit_button(
+            _edit_click(value="edit"),
+            client,
+            MagicMock(),
+            {},
+            _region(locked=0),
+        )
+    update_modal.assert_called_once()

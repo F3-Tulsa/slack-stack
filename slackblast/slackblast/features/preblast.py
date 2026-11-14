@@ -10,6 +10,7 @@ from utilities.database.orm import PaxminerUser, Region
 from utilities.helper_functions import (
     app_timezone,
     get_user_names,
+    message_event_payload,
     remove_keys_from_dict,
     safe_get,
 )
@@ -58,13 +59,12 @@ def build_preblast_form(body: dict, client: WebClient, logger: Logger, context: 
         }
         callback_id = actions.PREBLAST_EDIT_CALLBACK_ID
         preblast_form.delete_block(actions.PREBLAST_DESTINATION)
-        initial_preblast_data = safe_get(body, "message", "metadata", "event_payload") or json.loads(
-            safe_get(body, "actions", 0, "value") or "{}"
-        )
+        initial_preblast_data = message_event_payload(body)
         blocks = safe_get(body, "message", "blocks")
-        moleskin_block = remove_keys_from_dict(blocks[1], ["display_url", "display_team_id"])
-        if len(blocks) == 3:
-            initial_preblast_data[actions.PREBLAST_MOLESKIN] = moleskin_block
+        if isinstance(blocks, list) and len(blocks) >= 2:
+            moleskin_block = remove_keys_from_dict(blocks[1], ["display_url", "display_team_id"])
+            if len(blocks) == 3:
+                initial_preblast_data[actions.PREBLAST_MOLESKIN] = moleskin_block
         preblast_form.set_initial_values(initial_preblast_data)
 
     preblast_form.update_modal(
@@ -210,17 +210,15 @@ def handle_preblast_edit_button(body: dict, client: WebClient, logger: Logger, c
     user_id = safe_get(body, "user_id") or safe_get(body, "user", "id")
     channel_id = safe_get(body, "channel_id") or safe_get(body, "channel", "id")
 
-    preblast_data = safe_get(body, "message", "metadata", "event_payload") or json.loads(
-        safe_get(body, "actions", 0, "value") or "{}"
-    )
+    preblast_data = message_event_payload(body)
 
     user_info_dict = client.users_info(user=user_id)
     user_admin: bool = user_info_dict["user"]["is_admin"]
     allow_edit: bool = (
         (region_record.editing_locked == 0)
         or user_admin
-        or (user_id == preblast_data[actions.PREBLAST_Q])
-        or (user_id in preblast_data[actions.PREBLAST_OP])
+        or (user_id == preblast_data.get(actions.PREBLAST_Q))
+        or (user_id == preblast_data.get(actions.PREBLAST_OP))
     )
 
     if allow_edit:

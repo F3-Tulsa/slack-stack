@@ -269,6 +269,22 @@ def safe_get(data, *keys):
         return None
 
 
+def message_event_payload(body: dict) -> dict:
+    """Return a message's metadata payload. Button values are not JSON."""
+    if not isinstance(body, dict):
+        return {}
+    message = body.get("message")
+    if not isinstance(message, dict):
+        return {}
+    metadata = message.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    payload = metadata.get("event_payload")
+    if isinstance(payload, dict):
+        return payload
+    return {}
+
+
 def get_channel_name(id, logger, client, region_record: Region = None):
     del region_record
     ao_record = DbManager.get_record(PaxminerAO, id, paxminer_schema_name())
