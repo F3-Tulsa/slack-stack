@@ -13,9 +13,7 @@ from utilities.slack import actions
 
 COMMAND_MAPPER = {
     "/backblast": (backblast.build_backblast_form, True),
-    "/slackblast": (backblast.build_backblast_form, True),
     "/preblast": (preblast.build_preblast_form, True),
-    "/config-welcome-message": (welcome.build_welcome_message_form, True),
     "/config-slackblast": (config.build_config_form, True),
 }
 
@@ -48,7 +46,6 @@ ACTION_MAPPER = {
     actions.CUSTOM_FIELD_DELETE: (custom_fields.delete_custom_field, False),
     actions.PREBLAST_NEW_BUTTON: (preblast.build_preblast_form, True),
     actions.PREBLAST_EDIT_BUTTON: (preblast.handle_preblast_edit_button, True),
-    actions.CONFIG_WELCOME_MESSAGE: (welcome.build_welcome_message_form, False),
     actions.CONFIG_EMAIL: (config.build_config_email_form, False),
     actions.CONFIG_GENERAL: (config.build_config_general_form, False),
     actions.CONFIG_WELCOME_MESSAGE: (welcome.build_welcome_config_form, False),

@@ -208,11 +208,6 @@ CONFIG_FORM = orm.BlockView(
                 ),
             ],
         ),
-        orm.ContextBlock(
-            element=orm.ContextElement(
-                initial_value="Not seeing something? PAXMiner options (achievements, Kotter, charts) are in `/config-paxminer`.",
-            ),
-        ),
     ]
 )
 

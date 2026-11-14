@@ -2,6 +2,7 @@
 import os
 import sys
 from contextlib import ExitStack, contextmanager
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -724,3 +725,102 @@ def test_backblast_create_keeps_claim_when_permalink_fails():
     ao_posts = [c for c in client.chat_postMessage.call_args_list if c.kwargs.get("channel") == "C_DOWNRANGE"]
     assert len(ao_posts) == 1
     assert any(op[0] == "add" and op[1] == "beatdowns" for op in session.ops)
+
+
+def _locked_region():
+    region = _region()
+    region.editing_locked = 1
+    region.custom_fields = None
+    return region
+
+
+def _edit_click_body(*, payload=None, value="edit"):
+    message = {"ts": "1.1"}
+    if payload is not None:
+        message["metadata"] = {"event_type": "backblast", "event_payload": payload}
+    return {
+        "user_id": "U_CLICK",
+        "channel_id": "C1",
+        actions.LOADING_ID: "V_LOAD",
+        "actions": [{"action_id": actions.BACKBLAST_EDIT_BUTTON, "value": value}],
+        "message": message,
+    }
+
+
+def _admin_client(*, is_admin=False):
+    client = MagicMock()
+    client.users_info.return_value = {"user": {"is_admin": is_admin}}
+    return client
+
+
+def test_locked_edit_allows_original_poster_when_coq_is_missing():
+    client = _admin_client()
+    with patch("features.backblast.build_backblast_form") as build:
+        backblast.handle_backblast_edit_button(
+            _edit_click_body(
+                payload={
+                    actions.BACKBLAST_Q: "U_Q",
+                    actions.BACKBLAST_COQ: None,
+                    actions.BACKBLAST_OP: "U_CLICK",
+                }
+            ),
+            client,
+            MagicMock(),
+            {},
+            _locked_region(),
+        )
+    build.assert_called_once()
+
+
+def test_locked_edit_denies_stranger_when_coq_is_missing():
+    client = _admin_client()
+    with patch("features.backblast.build_backblast_form") as build:
+        backblast.handle_backblast_edit_button(
+            _edit_click_body(
+                payload={
+                    actions.BACKBLAST_Q: "U_Q",
+                    actions.BACKBLAST_COQ: None,
+                    actions.BACKBLAST_OP: "U_OTHER",
+                }
+            ),
+            client,
+            MagicMock(),
+            {},
+            _locked_region(),
+        )
+    build.assert_not_called()
+    client.chat_postEphemeral.assert_called_once()
+
+
+def test_locked_edit_without_metadata_does_not_parse_the_button_value():
+    client = _admin_client()
+    with patch("features.backblast.build_backblast_form") as build:
+        backblast.handle_backblast_edit_button(
+            _edit_click_body(value="edit"),
+            client,
+            MagicMock(),
+            {},
+            _locked_region(),
+        )
+    build.assert_not_called()
+    client.chat_postEphemeral.assert_called_once()
+
+
+def test_unlocked_edit_without_metadata_opens_the_form():
+    region = _region()
+    region.editing_locked = 0
+    region.custom_fields = None
+    client = _admin_client()
+    with (
+        patch("features.backblast.check_for_duplicate", return_value=False),
+        patch("features.backblast.get_channel_name", return_value="ao"),
+        patch("utilities.slack.orm.BlockView.update_modal") as update_modal,
+    ):
+        backblast.handle_backblast_edit_button(
+            _edit_click_body(value="edit"),
+            client,
+            MagicMock(),
+            {},
+            region,
+        )
+    update_modal.assert_called_once()

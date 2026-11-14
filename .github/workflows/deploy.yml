@@ -337,7 +337,6 @@ jobs:
             "DatabaseSchema=${{ vars.F3_REGION_NAME }}_${{ vars.STAGE }}"
             "PmAchievementsUrl=${ACH_URL}"
             "PmAchievementsWebhookSecret=${{ secrets.PM_ACHIEVEMENTS_WEBHOOK_SECRET }}"
-            "PmSlackAppId=${{ vars.PM_SLACK_APP_ID }}"
             "SlackToken=${{ secrets.SB_SLACK_TOKEN }}"
             "SlackSigningSecret=${{ secrets.SB_SLACK_SIGNING_SECRET }}"
             "SlackClientSecret=${{ secrets.SB_SLACK_CLIENT_SECRET }}"
