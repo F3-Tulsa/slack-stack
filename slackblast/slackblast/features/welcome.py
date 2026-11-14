@@ -101,29 +101,6 @@ def build_welcome_config_form(body: dict, client: WebClient, logger: Logger, con
     )
 
 
-# eventually will not need this when we take out the /config-welcome-message command
-def build_welcome_message_form(body: dict, client: WebClient, logger: Logger, context: dict, region_record: Region):
-    update_view_id = safe_get(body, actions.LOADING_ID)
-    welcome_message_config_form = copy.deepcopy(forms.WELCOME_MESSAGE_CONFIG_FORM)
-
-    welcome_message_config_form.set_initial_values(
-        {
-            actions.WELCOME_DM_TEMPLATE: region_record.welcome_dm_template,
-            actions.WELCOME_DM_ENABLE: "enable" if region_record.welcome_dm_enable else "disable",
-            actions.WELCOME_CHANNEL: region_record.welcome_channel or "",
-            actions.WELCOME_CHANNEL_ENABLE: "enable" if region_record.welcome_channel_enable else "disable",
-        }
-    )
-
-    welcome_message_config_form.update_modal(
-        client=client,
-        view_id=update_view_id,
-        callback_id=actions.WELCOME_MESSAGE_CONFIG_CALLBACK_ID,
-        title_text="Welcomebot Settings",
-        parent_metadata=None,
-    )
-
-
 def handle_welcome_message_config_post(
     body: dict, client: WebClient, logger: Logger, context: dict, region_record: Region
 ):

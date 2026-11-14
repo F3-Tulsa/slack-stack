@@ -12,12 +12,12 @@ Built from **[slack-stack](../README.md)**. Deploy with `slackblast/template.yam
 
 ## Features
 
-- **`/slackblast`**, **`/backblast`**, **`/preblast`** — Modal forms for structured posts.
-- **`/config-slackblast`** — Region settings (email, Strava, custom fields, edit locks, templates).
+- **`/backblast`**, **`/preblast`** — Modal forms for structured posts.
+- **`/config-slackblast`** — Region settings (email, Strava, custom fields, edit locks, templates). Welcomebot settings are the Welcomebot Settings button in that modal.
 - **Strava** — Optional connect flow and activity pickers (tokens encrypted with `DB_ENCRYPTION_KEY`).
 - **Custom fields** — Extra JSON stored on backblast rows for reporting.
 - **Email / Postie** — Optional SMTP + post-by-email configuration.
-- **Welcome messages** — **`/config-welcome-message`** for DMs and channel intros.
+- **Welcome messages** — DMs and channel intros, configured from the Welcomebot Settings button in `/config-slackblast`.
 
 <img src="assets/backblast_demo.png" width="500" alt="Backblast form demo" />
 

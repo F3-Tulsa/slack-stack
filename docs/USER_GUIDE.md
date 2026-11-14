@@ -15,11 +15,11 @@ If your region does not set the PAXminer regional link for QSignups, only Slack 
 
 ## Slackblast
 
-- **`/slackblast`**, **`/backblast`**, **`/preblast`:** Post formatted beatdown content to channels.
+- **`/backblast`**, **`/preblast`:** Post formatted beatdown content to channels.
 - **Backblast fields:** Title, date, AO, PAX list, FNGs, moleskin, etc., as configured for your region.
 - **Strava:** Link activities when enabled.
 - **Email / Postie:** Optional outbound email flows where configured.
-- **`/config-slackblast`**, **`/config-welcome-message`:** Admin-style configuration for region and welcome content.
+- **`/config-slackblast`:** Admin-style configuration for region settings. Welcome content is the Welcomebot Settings button in that modal.
 - **Achievements coupling:** When PAXMiner is linked, saving a backblast can trigger achievement evaluation for affected PAX. In **General Settings**, admins can enable **Also post achievement unlocks to the AO channel** (only shown when PAXMiner is linked).
 
 ## PAXMiner

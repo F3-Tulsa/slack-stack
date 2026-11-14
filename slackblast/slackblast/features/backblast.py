@@ -137,7 +137,7 @@ def build_backblast_form(body: dict, client: WebClient, logger: Logger, context:
             channel_name = get_channel_name(channel_id, logger, client, region_record)
 
     if (
-        (safe_get(body, "command") in ["/backblast", "/slackblast"])
+        (safe_get(body, "command") == "/backblast")
         or (safe_get(body, "actions", 0, "action_id") == actions.BACKBLAST_NEW_BUTTON)
         or (safe_get(body, "view", "callback_id") == actions.BACKBLAST_CALLBACK_ID)
     ):
