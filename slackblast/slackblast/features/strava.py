@@ -14,7 +14,13 @@ from utilities import constants
 from utilities.database import DbManager
 from utilities.database.orm import Region, User
 from utilities.field_encryption import decrypt_field, encrypt_field
-from utilities.helper_functions import parse_rich_block, replace_user_channel_ids, safe_get, static_image_url
+from utilities.helper_functions import (
+    message_event_payload,
+    parse_rich_block,
+    replace_user_channel_ids,
+    safe_get,
+    static_image_url,
+)
 from utilities.interaction_claims import KIND_STRAVA, run_once
 from utilities.slack import actions, forms
 from utilities.slack import orm as slack_orm
@@ -30,21 +36,24 @@ def build_strava_form(body: dict, client: WebClient, logger: Logger, context: di
     lambda_function_host = safe_get(context, "lambda_request", "headers", "Host")
 
     backblast_ts = body["message"]["ts"]
-    backblast_meta = safe_get(body, "message", "metadata", "event_payload") or json.loads(
-        safe_get(body, "message", "blocks", -1, "elements", 0, "value") or "{}"
-    )
-    moleskine = body["message"]["blocks"][1]
-    moleskine_text = replace_user_channel_ids(parse_rich_block(moleskine), region_record, client, logger)
-    if "COT:" in moleskine_text:
-        moleskine_text = moleskine_text.split("COT:")[0]
-    elif "Announcements" in moleskine_text:
-        moleskine_text = moleskine_text.split("Announcements")[0]
+    backblast_meta = message_event_payload(body)
+    message_blocks = body["message"].get("blocks")
+    if isinstance(message_blocks, list) and len(message_blocks) > 1 and isinstance(message_blocks[1], dict):
+        moleskine_text = replace_user_channel_ids(
+            parse_rich_block(message_blocks[1]), region_record, client, logger
+        )
+        if "COT:" in moleskine_text:
+            moleskine_text = moleskine_text.split("COT:")[0]
+        elif "Announcements" in moleskine_text:
+            moleskine_text = moleskine_text.split("Announcements")[0]
+    else:
+        moleskine_text = ""
 
     allow_strava: bool = (
-        (user_id == backblast_meta[actions.BACKBLAST_Q])
-        or (user_id in (backblast_meta[actions.BACKBLAST_COQ] or []))
-        or (user_id in (backblast_meta[actions.BACKBLAST_PAX] or []))
-        or (user_id in (backblast_meta[actions.BACKBLAST_OP] or []))
+        (user_id == backblast_meta.get(actions.BACKBLAST_Q))
+        or (user_id in (backblast_meta.get(actions.BACKBLAST_COQ) or []))
+        or (user_id in (backblast_meta.get(actions.BACKBLAST_PAX) or []))
+        or (user_id == backblast_meta.get(actions.BACKBLAST_OP))
     )
 
     redirect_stage = "" if constants.LOCAL_DEVELOPMENT else "Prod/"

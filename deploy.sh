@@ -261,8 +261,6 @@ run_setup_github() {
   gh variable set F3_REGION_SLACK_TEAM_ID --env "$STAGE" --body "$F3_REGION_SLACK_TEAM_ID" -R "$repo"
   gh variable set SB_SLACK_CLIENT_ID --env "$STAGE" --body "$SB_SLACK_CLIENT_ID" -R "$repo"
   gh variable set QS_SLACK_CLIENT_ID --env "$STAGE" --body "$QS_SLACK_CLIENT_ID" -R "$repo"
-  [[ -n "${PM_SLACK_APP_ID:-}" ]] && \
-    gh variable set PM_SLACK_APP_ID --env "$STAGE" --body "$PM_SLACK_APP_ID" -R "$repo"
   [[ -n "${ENABLE_XRAY:-}" ]] && \
     gh variable set ENABLE_XRAY --env "$STAGE" --body "$ENABLE_XRAY" -R "$repo"
   [[ -n "${RUN_EXTEND_SCHEDULE:-}" ]] && \
@@ -566,7 +564,6 @@ deploy_slackblast() {
       "DatabaseSchema=${F3_REGION_NAME}_${STAGE}" \
       "PmAchievementsUrl=${achievements_url}" \
       "PmAchievementsWebhookSecret=${PM_ACHIEVEMENTS_WEBHOOK_SECRET}" \
-      "PmSlackAppId=${PM_SLACK_APP_ID:-}" \
       "SlackToken=${SB_SLACK_TOKEN}" \
       "SlackSigningSecret=${SB_SLACK_SIGNING_SECRET}" \
       "SlackClientSecret=${SB_SLACK_CLIENT_SECRET}" \

@@ -15,11 +15,11 @@ If your region does not set the PAXminer regional link for QSignups, only Slack 
 
 ## Slackblast
 
-- **`/slackblast`**, **`/backblast`**, **`/preblast`:** Post formatted beatdown content to channels.
+- **`/backblast`**, **`/preblast`:** Post formatted beatdown content to channels.
 - **Backblast fields:** Title, date, AO, PAX list, FNGs, moleskin, etc., as configured for your region.
 - **Strava:** Link activities when enabled.
 - **Email / Postie:** Optional outbound email flows where configured.
-- **`/config-slackblast`**, **`/config-welcome-message`:** Admin-style configuration for region and welcome content.
+- **`/config-slackblast`:** Admin-style configuration for region settings. Welcome content is the Welcomebot Settings button in that modal.
 - **Achievements coupling:** When PAXMiner is linked, saving a backblast can trigger achievement evaluation for affected PAX. In **General Settings**, admins can enable **Also post achievement unlocks to the AO channel** (only shown when PAXMiner is linked).
 
 ## PAXMiner
@@ -29,7 +29,7 @@ PAXMiner runs in the background and in Slack admin flows:
 - **Sync:** Daily user/channel sync.
 - **Achievements:** Data-driven rules grant and revoke awards. Schedule an **Award Achievements** item (default daily) for when/where unlocks post; awards also DM the PAX. Optional AO channel posts come from Slackblast when enabled.
 - **Scheduled reports:** Awards, charts, leaderboards, Kotter, and custom reports run on the unified schedule. Frequencies include hourly, daily, weekly, monthly, and custom intervals. Items with no destination channel configured are skipped until an admin sets one.
-- **`/config-paxminer`** (workspace admins): Timezone on Save; hub buttons for achievement rules, report definitions, Kotter thresholds, and **Schedule** (including **Run Now** for a single report item). The same hub is available from the PAXMiner App Home **PAXMiner Settings** button, and from `/config-slackblast` when the workspace is linked to PAXMiner.
+- **`/config-paxminer`** (workspace admins): Timezone on Save; hub buttons for achievement rules, report definitions, Kotter thresholds, and **Schedule** (including **Run Now** for a single report item). The same hub is available from the PAXMiner App Home **PAXMiner Settings** button.
 - Manual Kotter (and other reports): use **Schedule → select item → Run Now** (one region / one schedule item). There is no `/kotter-report` slash command. Run Now posts the outcome to the PAXMiner log channel (it does not DM the admin).
 - **PAXMiner log channel:** Operational summaries for automatic runs and **Run Now** — achievement grants/revokes, Kotter posts, and scheduled report success/skip/failure (with error detail on failure). Open that channel to audit background activity.
 
