@@ -31,10 +31,12 @@ PAXMiner runs in the background and in Slack admin flows:
 - **Scheduled reports:** Awards, charts, leaderboards, Kotter, and custom reports run on the unified schedule. Frequencies include hourly, daily, weekly, monthly, and custom intervals. Items with no destination channel configured are skipped until an admin sets one.
 - **`/config-paxminer`** (workspace admins): Timezone on Save; hub buttons for achievement rules, report definitions, Kotter thresholds, and **Schedule** (including **Run Now** for a single report item). The same hub is available from the PAXMiner App Home **PAXMiner Settings** button.
 - Manual Kotter (and other reports): use **Schedule → select item → Run Now** (one region / one schedule item). There is no `/kotter-report` slash command. Run Now posts the outcome to the PAXMiner log channel (it does not DM the admin).
-- **PAXMiner log channel:** Operational summaries for automatic runs and **Run Now** — achievement grants/revokes, Kotter posts, and scheduled report success/skip/failure (with error detail on failure). Open that channel to audit background activity.
+- **PAXMiner log channel:** Operational summaries for automatic runs and **Run Now** — achievement grants/revokes, Kotter posts, and scheduled report success/skip/failure (with error detail on failure). Unhandled errors from the three apps, a Slackblast save that missed the database, and a failed QSignups reminder also post a short note there. Open that channel to audit background activity.
 
 There is no `/tag-achievement` command; awards are computed from attendance data, not manual tags.
 
 ## Getting help
+
+When Slackblast shows a short code, send that code to a region admin. Unexpected failures are also posted in the PAXMiner log channel. Searching the Slackblast logs for the code shows the channel and, when the click was on a post or in a modal, which post or which modal.
 
 For deployment or database issues, region tech contacts should see **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** and **[DEPLOY.md](DEPLOY.md)**.

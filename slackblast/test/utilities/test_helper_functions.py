@@ -873,6 +873,101 @@ def test_backblast_date_label_is_the_full_locale_date():
     assert helper_functions.backblast_date_label("not a date") == "not a date"
 
 
+def test_log_fields_and_operator_message_omit_missing_user_and_channel():
+    assert helper_functions.format_log_fields(
+        {"team_id": "T1", "user_id": None, "channel_id": "", "request_id": "team_join"}
+    ) == "team_id=T1 request_id=team_join"
+    assert helper_functions.slack_actor_id({"event": {"type": "team_join"}}) == ""
+    assert helper_functions.slack_actor_id({"event": {"type": "team_join", "user": {"id": "U123"}}}) == "U123"
+    notice = helper_functions.operator_log_message(
+        "Something went wrong: ValueError.",
+        user_id="",
+        channel_id=None,
+        team_id="T1",
+    )
+    assert "User:" not in notice
+    assert "Channel:" not in notice
+    assert "Team: T1" in notice
+
+
+def test_slack_request_context_keeps_ids_and_drops_the_body():
+    secret = "smtp-secret-password"
+    moleskin = "workout writeup with a password"
+    context = helper_functions.format_slack_request_context(
+        {
+            "type": "view_submission",
+            "token": "xoxb-should-not-log",
+            "response_url": "https://hooks.slack.com/commands/T/B/secret",
+            "channel_name": "downrange",
+            "view": {
+                "id": "V_FORM",
+                "private_metadata": json.dumps(
+                    {
+                        "channel_id": "C_DOWNRANGE",
+                        "message_ts": "111.222",
+                        "event_id": 42,
+                        "moleskin": moleskin,
+                    }
+                ),
+                "state": {"values": {"email_password": {"v": {"value": secret}}}},
+            },
+            "actions": [
+                {
+                    "action_id": "strava-activity-button",
+                    "value": json.dumps(
+                        {
+                            "strava-activity-id": "998877",
+                            "strava-channel-id": "C_STRAVA",
+                            "title": "Morning beatdown",
+                        }
+                    ),
+                }
+            ],
+        }
+    )
+    assert "channel_id=C_DOWNRANGE" in context
+    assert "channel_name=downrange" in context
+    assert "message_ts=111.222" in context
+    assert "view_id=V_FORM" in context
+    assert "event_id=42" in context
+    assert "strava_activity_id=998877" in context
+    assert secret not in context
+    assert moleskin not in context
+    assert "Morning beatdown" not in context
+    assert "xoxb-should-not-log" not in context
+    assert "hooks.slack.com" not in context
+
+
+def test_slack_request_context_reads_a_button_on_a_post():
+    context = helper_functions.format_slack_request_context(
+        {
+            "type": "block_actions",
+            "container": {"channel_id": "C_POST", "message_ts": "222.333"},
+            "message": {"text": "the posted backblast", "ts": "222.333"},
+            "actions": [{"action_id": "edit", "value": "edit"}],
+        }
+    )
+    assert context == "channel_id=C_POST message_ts=222.333"
+    assert "the posted backblast" not in context
+    assert "value=edit" not in context
+
+
+def test_slack_request_context_uses_a_channel_id_button_value():
+    context = helper_functions.slack_request_context(
+        {"actions": [{"action_id": "ao-select", "value": "C0123456789"}]}
+    )
+    assert context == {"channel_id": "C0123456789"}
+
+
+def test_slack_request_context_fills_a_missing_channel_from_overrides():
+    context = helper_functions.format_slack_request_context(
+        {"view": {"id": "V_CREATE"}},
+        channel_id="C_DOWNRANGE",
+        message_ts="123.456",
+    )
+    assert context == "channel_id=C_DOWNRANGE message_ts=123.456 view_id=V_CREATE"
+
+
 def test_format_backblast_paxminer_log_shapes():
     label = helper_functions.backblast_date_label(date(2026, 8, 21))
     imported = helper_functions.format_backblast_paxminer_log(

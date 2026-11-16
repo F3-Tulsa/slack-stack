@@ -166,8 +166,8 @@ def delete(client, user_id, team_id, logger, input_data) -> UpdateResponse:
         DbManager.delete_record(Weekly, weekly_event.id)
         return UpdateResponse(success = True, message=f":white_check_mark: All future {weekly_event.event_day_of_week} beatdowns at {weekly_event.ao_display_name} ({weekly_event.event_time}) have been wiped from the Weinke.")
     except Exception as e:
-        logger.error(f"Error deleting: {e}")
-        return UpdateResponse(success = False, message = f"Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker. Errors:\n{e}")
+        logger.exception("Error deleting")
+        return UpdateResponse(success = False, message = "Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker.")
 
 def edit_with_state_values(client, user_id, team_id, logger, event_id: int, input_data) -> UpdateResponse:
     """Apply recurring weekly edit from home-tab state values (also used after confirmation modal)."""
@@ -229,8 +229,8 @@ def edit_with_state_values(client, user_id, team_id, logger, event_id: int, inpu
 
         return UpdateResponse(success = True, message=":white_check_mark: Locked in—the Weinke has been updated!")
     except Exception as e:
-        logger.error(f"Error updating: {e}")
-        return UpdateResponse(success = False, message = f"Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker. Errors:\n{e}")
+        logger.exception("Error updating")
+        return UpdateResponse(success = False, message = "Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker.")
 
 
 def edit(client, user_id, team_id, logger, body) -> UpdateResponse:
@@ -287,6 +287,6 @@ def insert(client, user_id, team_id, logger, input_data) -> UpdateResponse:
         DbManager.create_records(record_list)
         return UpdateResponse(success = True, message=":white_check_mark: Locked in—the Weinke has been updated!")
     except Exception as e:
-        logger.error(f"Error updating: {e}")
-        return UpdateResponse(success = False, message = f"Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker. Errors:\n{e}")
+        logger.exception("Error updating")
+        return UpdateResponse(success = False, message = "Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker.")
 

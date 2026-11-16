@@ -1,8 +1,7 @@
-# import json
-import json
 import logging
 import os
 import re
+import uuid
 from typing import Callable, Tuple
 
 from slack_bolt import App
@@ -10,16 +9,23 @@ from slack_bolt.adapter.aws_lambda import SlackRequestHandler
 from sqlalchemy import text
 
 from features import strava
-from utilities.builders import add_loading_form, send_error_response
+from utilities.builders import add_loading_form, send_error_response, user_facing_error
 from utilities.constants import LOCAL_DEVELOPMENT
 from utilities.database.orm import Region
 from utilities.field_encryption import require_encryption_key
 from utilities.helper_functions import (
     ensure_bolt_lambda_client,
+    format_log_fields,
+    format_slack_request_context,
     get_oauth_flow,
+    slack_request_context,
     get_region_record,
     get_request_type,
+    join_log,
+    operator_log_message,
+    post_operator_log,
     safe_get,
+    slack_actor_id,
     update_local_region_records,
 )
 from utilities.routing import MAIN_MAPPER
@@ -137,23 +143,36 @@ def main_response(body, logger, client, ack, context):
     if LOCAL_DEVELOPMENT:
         ack()
     team_id = safe_get(body, "team_id") or safe_get(body, "team", "id")
-    user_id = safe_get(body, "user_id") or safe_get(body, "user", "id")
+    user_id = slack_actor_id(body)
     request_type, request_id = get_request_type(body)
+    log_context = format_slack_request_context(body)
     logger.info(
-        "Slack request summary team_id=%s user_id=%s request_type=%s request_id=%s",
-        team_id,
-        user_id,
-        request_type,
-        request_id,
+        "%s",
+        join_log(
+            "Slack request summary",
+            format_log_fields(
+                {
+                    "team_id": team_id,
+                    "user_id": user_id,
+                    "request_type": request_type,
+                    "request_id": request_id,
+                }
+            ),
+            log_context,
+        ),
     )
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug("Slack request body=%s", json.dumps(body, default=str))
-
     region_record: Region = get_region_record(team_id, body, context, client, logger)
     logger.info(
-        "Region record team_id=%s workspace_name=%s",
-        getattr(region_record, "team_id", None) or team_id,
-        getattr(region_record, "workspace_name", None) or "(none)",
+        "%s",
+        join_log(
+            "Region record",
+            format_log_fields(
+                {
+                    "team_id": getattr(region_record, "team_id", None) or team_id,
+                    "workspace_name": getattr(region_record, "workspace_name", None),
+                }
+            ),
+        ),
     )
 
     lookup: Tuple[Callable, bool] = safe_get(safe_get(MAIN_MAPPER, request_type), request_id)
@@ -161,10 +180,13 @@ def main_response(body, logger, client, ack, context):
         run_function, add_loading = lookup
         fn_name = getattr(run_function, "__name__", str(run_function))
         logger.info(
-            "Dispatching handler=%s add_loading=%s request_id=%s",
-            fn_name,
-            add_loading,
-            request_id,
+            "%s",
+            join_log(
+                "Dispatching",
+                format_log_fields(
+                    {"handler": fn_name, "add_loading": add_loading, "request_id": request_id}
+                ),
+            ),
         )
         if add_loading:
             body[LOADING_ID] = add_loading_form(body=body, client=client)
@@ -178,13 +200,49 @@ def main_response(body, logger, client, ack, context):
             )
             logger.info("Handler complete request_id=%s handler=%s", request_id, fn_name)
         except Exception as exc:
-            logger.info("sending error response")
-            send_error_response(body=body, client=client, error=str(exc)[:3000])
-            logger.error("Handler error: %s", exc, exc_info=True)
+            ref = uuid.uuid4().hex[:8]
+            error_context = format_slack_request_context(body)
+            logger.error(
+                "%s: %s",
+                join_log(
+                    "Handler error",
+                    format_log_fields(
+                        {
+                            "ref": ref,
+                            "team_id": team_id,
+                            "user_id": slack_actor_id(body),
+                            "request_id": request_id,
+                        }
+                    ),
+                    error_context,
+                ),
+                exc,
+                exc_info=True,
+            )
+            notice = user_facing_error(exc, body, ref=ref)
+            post_operator_log(
+                client,
+                logger,
+                region_record,
+                operator_log_message(
+                    notice,
+                    team_id=team_id,
+                    user_id=slack_actor_id(body),
+                    **slack_request_context(body),
+                ),
+            )
+            try:
+                send_error_response(body=body, client=client, error=notice)
+            except Exception:
+                logger.exception("Error response failed ref=%s", ref)
     else:
         logger.error(
-            f"no handler for path: "
-            f"{safe_get(safe_get(MAIN_MAPPER, request_type), request_id) or request_type+', '+request_id}"
+            "%s",
+            join_log(
+                "no handler for path:",
+                safe_get(safe_get(MAIN_MAPPER, request_type), request_id) or f"{request_type}, {request_id}",
+                log_context,
+            ),
         )
 
 

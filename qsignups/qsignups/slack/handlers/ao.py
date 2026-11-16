@@ -69,10 +69,10 @@ def edit(client, user_id, team_id, logger, ao_channel_id, input_data) -> UpdateR
         set_site_q(ao_channel_id, site_q_user_id)
         return UpdateResponse(success=True, message=":white_check_mark: Locked in—the Weinke has been updated!")
     except Exception as e:
-        logger.error(f"Error updating: {e}")
+        logger.exception("Error updating AO")
         return UpdateResponse(
             success=False,
-            message=f"Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker. Errors:\n{e}",
+            message="Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker.",
         )
 
 
@@ -91,10 +91,10 @@ def delete(client, user_id, team_id, logger, ao_channel_id) -> UpdateResponse:
         )
         return UpdateResponse(success=True, message=":white_check_mark: Locked in—the Weinke has been updated!")
     except Exception as e:
-        logger.error(f"Error deleting AO: {e}")
+        logger.exception("Error deleting AO")
         return UpdateResponse(
             success=False,
-            message=f"Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker. Errors:\n{e}",
+            message="Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker.",
         )
 
 
@@ -132,8 +132,8 @@ def insert(client, user_id, team_id, logger, input_data) -> UpdateResponse:
         set_site_q(ao_channel_id, site_q_user_id)
         return UpdateResponse(success=True, message=":white_check_mark: Locked in—the Weinke has been updated!")
     except Exception as e:
-        logger.error(f"Error inserting: {e}")
+        logger.exception("Error inserting AO")
         return UpdateResponse(
             success=False,
-            message=f"Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker. Errors:\n{e}",
+            message="Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker.",
         )

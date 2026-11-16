@@ -100,7 +100,7 @@ def build_strava_form(body: dict, client: WebClient, logger: Logger, context: di
             user_record = user_records[0]
             strava_recent_activities = get_strava_activities(user_record)
 
-            logger.info(f"recent activities found: {strava_recent_activities}")
+            logger.info("recent activities found: count=%s", len(strava_recent_activities or []))
             if len(strava_recent_activities) == 0:
                 strava_blocks = [
                     slack_orm.SectionBlock(

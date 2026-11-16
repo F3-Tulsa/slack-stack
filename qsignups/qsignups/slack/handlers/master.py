@@ -167,8 +167,8 @@ def delete(client, user_id, team_id, logger, input_data) -> UpdateResponse:
         DbManager.delete_records(Master, master_filter)
         return UpdateResponse(success = True, message=f":white_check_mark: That beatdown slot on {selected_date_db} at {selected_time_db} has been wiped from the Weinke.")
     except Exception as e:
-        logger.error(f"Error deleting: {e}")
-        return UpdateResponse(success = False, message = f"Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker. Errors:\n{e}")
+        logger.exception("Error deleting")
+        return UpdateResponse(success = False, message = "Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker.")
 
 def insert(client, user_id, team_id, logger, input_data) -> UpdateResponse:
 
@@ -206,8 +206,8 @@ def insert(client, user_id, team_id, logger, input_data) -> UpdateResponse:
         ))
         return UpdateResponse(success = True, message=":white_check_mark: Locked in—the Weinke has been updated!")
     except Exception as e:
-        logger.error(f"Error inserting: {e}")
-        return UpdateResponse(success = False, message = f"Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker. Errors:\n{e}")
+        logger.exception("Error inserting")
+        return UpdateResponse(success = False, message = "Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker.")
 
 def update_events_from_state(
     client,
@@ -285,8 +285,8 @@ def update_events_from_state(
         #     calendar.schedule_event(team_id, user, region, event, ao)
         return UpdateResponse(success = True, message=":white_check_mark: Locked in—the Weinke has been updated!")
     except Exception as e:
-        logger.error(f"Error inserting: {e}")
-        return UpdateResponse(success = False, message = f"Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker. Errors:\n{e}")
+        logger.exception("Error inserting")
+        return UpdateResponse(success = False, message = "Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker.")
 
 
 def update_events(client, user: User, team_id, logger, input_data) -> UpdateResponse:
@@ -339,8 +339,8 @@ def clear_event_q(client, user: User, team_id, logger, ao_display_name, selected
         selected_when = _event_when_text(selected_dt.date(), selected_dt.strftime("%H%M"))
         return UpdateResponse(success = True, message=f":white_check_mark: Roger that, {user.name}! The Q slot at *{ao_display_name}* on *{selected_when}* is now open.")
     except Exception as e:
-        logger.error("Error updating: %s", e, exc_info=True)
-        return UpdateResponse(success = False, message = f"Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker. Errors:\n{e}")
+        logger.exception("Error updating")
+        return UpdateResponse(success = False, message = "Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker.")
 
 def assign_event_q(
     client,

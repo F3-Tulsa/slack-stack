@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import uuid
 from datetime import datetime
 from logging import Logger
 
@@ -14,6 +15,7 @@ from utilities.database import DbManager, paxminer_schema_name
 from utilities.database.orm import Attendance, Backblast, PaxminerUser, Region
 from utilities.paxminer_achievements_webhook import trigger_achievement_webhook
 from utilities.field_encryption import decrypt_field
+from utilities.builders import user_facing_error
 from utilities.helper_functions import (
     app_timezone,
     check_for_duplicate,
@@ -25,6 +27,11 @@ from utilities.helper_functions import (
     get_user_names,
     parse_rich_block,
     plain_text_to_rich_block,
+    format_slack_request_context,
+    operator_log_message,
+    post_operator_log,
+    slack_actor_id,
+    slack_request_context,
     message_event_payload,
     remove_keys_from_dict,
     replace_user_channel_ids,
@@ -80,7 +87,13 @@ def persist_backblast(session, *, backblast, attendance_records, replace_timesta
     session.add_all(attendance_records)
 
 
-def _backblast_db_failure_text(create_or_edit: str, *, duplicate: bool, error: Exception | None = None) -> str:
+def _backblast_db_failure_text(
+    create_or_edit: str,
+    *,
+    duplicate: bool,
+    error: Exception | None = None,
+    ref: str = "",
+) -> str:
     if create_or_edit == "edit":
         text = (
             "WARNING: Your edit was not applied. The previous backblast is still in the database. "
@@ -92,23 +105,17 @@ def _backblast_db_failure_text(create_or_edit: str, *, duplicate: bool, error: E
                 " There is already a backblast for this AO and Q on this date. Please edit the "
                 "backblast using the `Edit this backblast` button. Thanks!"
             )
-        elif error is not None:
+    else:
+        text = "WARNING: The backblast you just posted was not saved to the database."
+        if duplicate:
             text += (
-                f"\nError: {type(error).__name__} - {error}\n"
-                "Please try again or contact your region's Slackblast admin."
+                " There is already a backblast for this AO and Q on this date. Please edit the "
+                "backblast using the `Edit this backblast` button. Thanks!"
             )
-        return text
-    text = "WARNING: The backblast you just posted was not saved to the database."
-    if duplicate:
-        text += (
-            " There is already a backblast for this AO and Q on this date. Please edit the "
-            "backblast using the `Edit this backblast` button. Thanks!"
-        )
+    if error is not None and ref:
+        text += " " + user_facing_error(error, ref=ref)
     elif error is not None:
-        text += (
-            f" Error: {type(error).__name__} - {error}\n"
-            "Please try again or contact your region's Slackblast admin."
-        )
+        text += " Please try again or contact your region's Slackblast admin."
     return text
 
 
@@ -208,8 +215,7 @@ def build_backblast_form(body: dict, client: WebClient, logger: Logger, context:
 
     backblast_form = add_custom_field_blocks(backblast_form, region_record)
 
-    logger.debug("is_duplicate is {}".format(is_duplicate))
-    logger.debug("backblast_form is {}".format(backblast_form.blocks))
+    logger.debug("is_duplicate is %s", is_duplicate)
     if not is_duplicate:
         backblast_form.delete_block(actions.BACKBLAST_DUPLICATE_WARNING)
 
@@ -263,9 +269,6 @@ def build_backblast_form(body: dict, client: WebClient, logger: Logger, context:
         )
         if channel_id:
             backblast_form.set_initial_values({actions.BACKBLAST_AO: channel_id})
-    logger.debug(backblast_form.blocks)
-    logger.debug("backblast_form is {}".format(backblast_form.as_form_field()))
-
     if duplicate_check or update_view_id:
         backblast_form.update_modal(
             client=client,
@@ -290,7 +293,6 @@ def handle_backblast_post(body: dict, client: WebClient, logger: Logger, context
     backblast_form = copy.deepcopy(forms.BACKBLAST_FORM)
     backblast_form = add_custom_field_blocks(backblast_form, region_record)
     backblast_data: dict = backblast_form.get_selected_values(body)
-    logger.info(f"Backblast data: {backblast_data}")
 
     title = safe_get(backblast_data, actions.BACKBLAST_TITLE)
     the_date = safe_get(backblast_data, actions.BACKBLAST_DATE)
@@ -660,10 +662,8 @@ def handle_backblast_post(body: dict, client: WebClient, logger: Logger, context
         raise
 
     if create_or_edit == "create":
-        logger.info("Message posted to Slack: %s", post_msg[:500])
         logger.info(json.dumps({"event_type": "successful_slack_post", "team_name": region_record.workspace_name}))
     elif create_or_edit == "edit":
-        logger.info("Backblast updated in Slack: %s", post_msg[:500])
         logger.info(json.dumps({"event_type": "successful_slack_edit", "team_name": region_record.workspace_name}))
 
     if create_or_edit == "create" and (
@@ -698,7 +698,6 @@ COUNT: {count}
                 email_to=region_record.email_to,
                 attachments=file_send_list,
             )
-            logger.debug("\nEmail Sent! \n{}".format(email_msg))
             logger.info(
                 json.dumps(
                     {
@@ -707,9 +706,8 @@ COUNT: {count}
                     }
                 )
             )
-        except Exception as sendmail_err:
-            logger.error("Error with sendmail: {}".format(sendmail_err))
-            logger.debug("\nEmail Sent! \n{}".format(email_msg))
+        except Exception:
+            logger.exception("Email send failed")
             logger.info(json.dumps({"event_type": "failed_email", "team_name": region_record.workspace_name}))
 
     if create_or_edit == "edit" and message_ts:
@@ -808,17 +806,51 @@ COUNT: {count}
             )
         )
     except IntegrityError as e:
-        logger.error("Duplicate backblast: %s", e, exc_info=True)
+        ref = uuid.uuid4().hex[:8]
+        error_context = format_slack_request_context(
+            body,
+            channel_id=message_channel or chan or ao,
+            message_ts=message_ts or (res.get("ts") if isinstance(res, dict) else None),
+        )
+        logger.error(
+            "Duplicate backblast ref=%s%s: %s",
+            ref,
+            f" {error_context}" if error_context else "",
+            e,
+            exc_info=True,
+        )
         client.chat_postMessage(
             channel=context["user_id"],
-            text=_backblast_db_failure_text(create_or_edit, duplicate=True),
+            text=_backblast_db_failure_text(create_or_edit, duplicate=True, error=e, ref=ref),
         )
         logger.info(json.dumps({"event_type": "failed_db_insert", "team_name": region_record.workspace_name}))
     except Exception as e:
-        logger.error("Error saving backblast to database: %s", e, exc_info=True)
-        client.chat_postMessage(
-            channel=context["user_id"],
-            text=_backblast_db_failure_text(create_or_edit, duplicate=False, error=e),
+        ref = uuid.uuid4().hex[:8]
+        saved_fields = slack_request_context(
+            body,
+            channel_id=message_channel or chan or ao,
+            message_ts=message_ts or (res.get("ts") if isinstance(res, dict) else None),
+        )
+        error_context = " ".join(f"{key}={value}" for key, value in saved_fields.items())
+        logger.error(
+            "Error saving backblast to database ref=%s%s: %s",
+            ref,
+            f" {error_context}" if error_context else "",
+            e,
+            exc_info=True,
+        )
+        failure_text = _backblast_db_failure_text(create_or_edit, duplicate=False, error=e, ref=ref)
+        client.chat_postMessage(channel=context["user_id"], text=failure_text)
+        post_operator_log(
+            client,
+            logger,
+            region_record,
+            operator_log_message(
+                failure_text,
+                team_id=team_id,
+                user_id=slack_actor_id(body) or context.get("user_id"),
+                **saved_fields,
+            ),
         )
         logger.info(json.dumps({"event_type": "failed_db_insert", "team_name": region_record.workspace_name}))
 

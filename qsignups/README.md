@@ -15,6 +15,8 @@ Use the OAuth install URL from your deployed stack (CloudFormation output **`QSi
 - **Manage Region Calendar:** Cancel / back on Add, Edit, and Delete flows for AOs and events returns to the **Manage Region Calendar** menu (not the main Home screen). The “Return to the Home Page” control on that menu still goes to Home.
 - Google Calendar sync is **disabled** in production builds (no Google client packages in Lambda `requirements.txt`). Schema fields such as `google_auth_data` remain for a future re-enable; when restoring, add the Google deps back and uncomment the handlers in `app.py`.
 
+Each Slack request is logged as `slack request` with the team, user, action or modal, and, when Slack sent them, the channel, the message timestamp, and the modal view id. Missing fields are left off the line. The request body is not logged. An unhandled failure and a failed reminder also post a short note to the channel named `paxminer_logs`. See [docs/TROUBLESHOOTING.md](../docs/TROUBLESHOOTING.md).
+
 ## Schedule reconciliation
 
 - **Rolling calendar:** Adding a recurring AO schedule creates `qsignups_master` rows from the chosen start date through **today + `SCHEDULE_CREATE_LENGTH_DAYS`** (SAM parameter `ScheduleCreateLengthDays`, default **365**). The same horizon is used when extending and when editing a recurring series.

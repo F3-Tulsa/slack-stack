@@ -14,7 +14,10 @@ def update(client, user_id, team_id, logger, input_data) -> UpdateResponse:
     try:
         DbManager.update_record(Region, team_id, updates)
         return UpdateResponse(success = True)
-    except Exception as e:
-        logger.error(f"Error writing to db: {e}")
-        return UpdateResponse(success = False, message = f"{e}")
+    except Exception:
+        logger.exception("Error writing settings")
+        return UpdateResponse(
+            success=False,
+            message="Uh-oh, something broke out in the Gloom! Please try again or contact your Weasel Shaker.",
+        )
 
