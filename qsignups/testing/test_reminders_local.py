@@ -88,6 +88,42 @@ def test_send_team_reminders_groups_q_and_ao_messages() -> None:
     assert any("*OPEN*" in message for message in ao_messages)
 
 
+def test_failed_q_reminder_posts_one_log_line() -> None:
+    from slack.handlers.reminders import send_team_reminders
+
+    region = SimpleNamespace(
+        team_id="T1",
+        workspace_name="F3 Tulsa",
+        signup_reminders=1,
+        weekly_ao_reminders=0,
+        timezone="US/Central",
+    )
+    events = [_event("CAO1", "The Bridge", "U1", "Ben", date(2026, 5, 6), "0530", "Bootcamp")]
+    client = MagicMock()
+
+    def _post(**kwargs):
+        if kwargs.get("channel") == "U1":
+            raise RuntimeError("channel_not_found")
+        return {"ok": True}
+
+    client.chat_postMessage.side_effect = _post
+    client.conversations_open.side_effect = RuntimeError("cannot open dm")
+
+    with patch("slack.handlers.reminders.DbManager.find_records", return_value=events):
+        with patch("slack.handlers.reminders._window_dates", return_value=(date(2026, 5, 3), date(2026, 5, 9))):
+            result = send_team_reminders(client, "T1", logging.getLogger("test"), region=region)
+
+    assert result.q_messages_sent == 0
+    assert result.error_count() == 1
+    log_posts = [call for call in client.chat_postMessage.call_args_list if call.kwargs.get("channel") == "paxminer_logs"]
+    assert len(log_posts) == 1
+    text = log_posts[0].kwargs["text"]
+    assert "Team: T1" in text
+    assert "Errors: 1" in text
+    assert "User:" not in text
+    assert "channel_not_found" not in text
+
+
 def test_window_dates_use_sunday_through_saturday_for_midweek_manual_run() -> None:
     from slack.handlers.reminders import _window_dates
 
@@ -153,6 +189,7 @@ def test_send_all_region_reminders_uses_stored_bot_tokens() -> None:
 if __name__ == "__main__":
     test_radio_buttons_restore_saved_string_value()
     test_send_team_reminders_groups_q_and_ao_messages()
+    test_failed_q_reminder_posts_one_log_line()
     test_window_dates_use_sunday_through_saturday_for_midweek_manual_run()
     test_send_team_reminders_respects_disabled_flags()
     test_send_all_region_reminders_uses_stored_bot_tokens()

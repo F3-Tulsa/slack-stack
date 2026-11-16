@@ -1823,6 +1823,10 @@ def test_operator_error_notice_includes_reason_without_log_channel():
         SlackApiError("fail", {"error": "push_limit_reached"}), body
     )
     assert named == "Something went wrong: push_limit_reached (Add custom report)"
+    sql = "INSERT INTO beatdowns VALUES " + ("x" * 40)
+    hidden = operator_error_notice(RuntimeError(sql))
+    assert sql not in hidden
+    assert hidden == "Something went wrong: RuntimeError"
 
 
 def test_handle_error_dms_reason_not_log_channel():
@@ -1834,10 +1838,29 @@ def test_handle_error_dms_reason_not_log_channel():
     body = {"user": {"id": "U1"}}
     handle_error(ModuleNotFoundError("No module named 'achievements'"), body, logger, client)
 
-    client.chat_postMessage.assert_called_once()
-    text = client.chat_postMessage.call_args.kwargs["text"]
+    dm = next(call for call in client.chat_postMessage.call_args_list if call.kwargs.get("channel") == "D1")
+    text = dm.kwargs["text"]
     assert "achievements" in text
     assert "paxminer_logs" not in text.lower()
+    log = next(call for call in client.chat_postMessage.call_args_list if call.kwargs.get("channel") == "paxminer_logs")
+    assert "User: U1" in log.kwargs["text"]
+    assert "Channel:" not in log.kwargs["text"]
+
+
+def test_handle_error_without_a_user_posts_the_log_channel_only():
+    from slack_app import handle_error
+
+    client = MagicMock()
+    logger = MagicMock()
+    handle_error(RuntimeError("db down"), {}, logger, client)
+
+    client.conversations_open.assert_not_called()
+    client.chat_postMessage.assert_called_once()
+    text = client.chat_postMessage.call_args.kwargs["text"]
+    assert client.chat_postMessage.call_args.kwargs["channel"] == "paxminer_logs"
+    assert "db down" in text
+    assert "User:" not in text
+    assert "Channel:" not in text
 
 
 def test_slack_dockerfile_copies_imported_achievement_modules():

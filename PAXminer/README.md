@@ -88,6 +88,8 @@ Best-effort lines in the region's PAXMiner log channel (defaults to `#paxminer_l
 
 Scheduled ticks and Run Now share one PAXMiner log-channel outcome (report name, status + duration, optional Results/Period, message count, destination phrase). Chart producers report real upload successes — a resolved AO count is no longer treated as “posted.”
 
+An unhandled PAXMiner error posts a short note to this same channel, in addition to the DM or ephemeral the clicker already receives. Slackblast posts its unexpected failures here too. QSignups posts unhandled failures and a failed reminder to the channel named `paxminer_logs`.
+
 Empty attendance for Achievements/Kotter returns a clear skip/error (and Achievements will **not** mass-revoke awards when attendance data is missing).
 
 ### Seed test-region data (dev only)

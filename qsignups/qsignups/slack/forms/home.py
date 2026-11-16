@@ -82,7 +82,7 @@ def refresh(client, user: User, logger, top_message, team_id, context):
         logging.getLogger(__name__).debug("home upcoming schedule preview: %s", sMsg[:2000])
 
     except Exception as e:
-        logger.error("Error pulling user db info: %s", e, exc_info=True)
+        logger.exception("Error pulling user db info")
 
     # Extend top message with upcoming qs list
     if len(upcoming_qs) > 0:
@@ -228,4 +228,4 @@ def refresh(client, user: User, logger, top_message, team_id, context):
             }
         )
     except Exception as e:
-        logger.error("Error publishing home tab: %s", e, exc_info=True)
+        logger.exception("Error publishing home tab")

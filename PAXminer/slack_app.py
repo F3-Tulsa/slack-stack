@@ -91,24 +91,38 @@ app = App(
 )
 
 
+def format_log_fields(fields: dict) -> str:
+    """key=value pairs. Skips missing values instead of printing blanks."""
+    parts = []
+    for key, value in fields.items():
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            parts.append(f"{key}={text}")
+    return " ".join(parts)
+
+
 @app.middleware
 def log_request(logger, body, next):
     team_id = body.get("team_id") or (body.get("team") or {}).get("id")
     user_id = body.get("user_id") or (body.get("user") or {}).get("id")
-    request_type = body.get("type") or ("command" if body.get("command") else "unknown")
+    request_type = body.get("type") or ("command" if body.get("command") else "")
     callback_or_action = (
         body.get("command")
         or ((body.get("view") or {}).get("callback_id"))
         or (((body.get("actions") or [{}])[0]).get("action_id"))
         or ""
     )
-    logger.info(
-        "slack request team_id=%s user_id=%s type=%s callback_or_action=%s",
-        team_id,
-        user_id,
-        request_type,
-        callback_or_action,
+    fields = format_log_fields(
+        {
+            "team_id": team_id,
+            "user_id": user_id,
+            "type": request_type,
+            "callback_or_action": callback_or_action,
+        }
     )
+    logger.info("slack request%s", f" {fields}" if fields else "")
     return next()
 
 
@@ -126,6 +140,9 @@ def _error_control_label(body: dict | None) -> str:
     return ((body.get("view") or {}).get("callback_id") or "").strip()
 
 
+_SECRET_WORDS = ("password", "token", "secret", "select ", "insert ", "update ", "delete ", "drop ")
+
+
 def operator_error_notice(error: BaseException, body: dict | None = None) -> str:
     """Short operator-facing reason for an unhandled Bolt error. No log-channel pointer."""
     reason = ""
@@ -134,8 +151,12 @@ def operator_error_notice(error: BaseException, body: dict | None = None) -> str
         if resp is not None and hasattr(resp, "get"):
             reason = str(resp.get("error") or "").strip()
     if not reason:
-        reason = str(error).strip() or type(error).__name__
-    reason = " ".join(reason.split())
+        text = " ".join(str(error).split())
+        lowered = text.lower()
+        if text and len(text) <= 80 and not any(word in lowered for word in _SECRET_WORDS):
+            reason = text
+        else:
+            reason = type(error).__name__
     control = _error_control_label(body)
     suffix = f" ({control})" if control else ""
     notice = f"Something went wrong: {reason}{suffix}"
@@ -146,10 +167,20 @@ def operator_error_notice(error: BaseException, body: dict | None = None) -> str
 
 @app.error
 def handle_error(error, body, logger, client):
-    logger.exception("Unhandled Slack Bolt error: %s", error)
     user_id = body.get("user_id") or (body.get("user") or {}).get("id")
     channel_id = body.get("channel_id") or (body.get("channel") or {}).get("id")
+    fields = format_log_fields({"user_id": user_id, "channel_id": channel_id})
+    logger.exception("Unhandled Slack Bolt error%s", f" {fields}" if fields else "")
     notice = operator_error_notice(error, body)
+    rows = [f"What: {notice}"] if notice else []
+    if user_id:
+        rows.append(f"User: {user_id}")
+    if channel_id:
+        rows.append(f"Channel: <#{channel_id}>")
+    if rows:
+        from slack_util import post_log
+
+        post_log(client, "*PAXMiner* error.\n```\n" + "\n".join(rows) + "\n```")
     if user_id and channel_id:
         try:
             client.chat_postEphemeral(

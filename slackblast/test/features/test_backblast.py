@@ -150,9 +150,10 @@ def _find_records(user_records=None, prior_attendance=None, prior_backblast=None
     return _inner
 
 
-def _run_handle(*, body, session, region=None, client=None, find_records=None, extra_patches=None):
+def _run_handle(*, body, session, region=None, client=None, logger=None, find_records=None, extra_patches=None):
     region = region or _region()
     client = client or MagicMock()
+    logger = logger or MagicMock()
     if body["view"]["callback_id"] == actions.BACKBLAST_CALLBACK_ID:
         client.chat_postMessage.return_value = {"ts": "123.456", "message": {"edited": {"ts": "123.457"}}}
     else:
@@ -182,7 +183,7 @@ def _run_handle(*, body, session, region=None, client=None, find_records=None, e
         backblast.handle_backblast_post(
             body=body,
             client=client,
-            logger=MagicMock(),
+            logger=logger,
             context={"user_id": "U_SUBMITTER"},
             region_record=region,
         )
@@ -336,9 +337,18 @@ def test_edit_insert_failure_rolls_back_prior_rows():
     mock_webhook = MagicMock()
     prior = MagicMock()
     prior.user_id = "U_REMOVED"
+    logger = MagicMock()
+    region = _region()
+    region.log_channel = "CLOG"
+    body = _edit_body()
+    meta = json.loads(body["view"]["private_metadata"])
+    meta["moleskin"] = "workout-writeup-do-not-log"
+    body["view"]["private_metadata"] = json.dumps(meta)
     client, _ = _run_handle(
-        body=_edit_body(),
+        body=body,
         session=session,
+        logger=logger,
+        region=region,
         find_records=_find_records(prior_attendance=[prior]),
         extra_patches=[patch("features.backblast.trigger_achievement_webhook", mock_webhook)],
     )
@@ -355,6 +365,16 @@ def test_edit_insert_failure_rolls_back_prior_rows():
     assert "Your edit was not applied" in text
     assert "previous backblast is still in the database" in text
     assert "was updated but the database still has the previous version" in text
+    assert "Duplicate entry" not in text
+    assert "duplicate in the database (IntegrityError)" in text
+    assert "Slackblast CloudWatch logs" in text
+    assert "Tell an admin this code:" in text
+    logged = " ".join(str(call.args) for call in logger.error.call_args_list)
+    assert "channel_id=C_DOWNRANGE" in logged
+    assert "message_ts=111.222" in logged
+    assert "view_id=V_EDIT" in logged
+    assert "workout-writeup-do-not-log" not in logged
+    assert "CLOG" not in [call.kwargs.get("channel") for call in client.chat_postMessage.call_args_list]
 
 
 def test_successful_edit_deletes_and_inserts_on_one_session_one_commit():
@@ -392,11 +412,19 @@ def test_create_does_not_delete_and_commits_once():
 def test_webhook_not_called_when_transaction_raises():
     session = RecordingSession(fail_on_add=RuntimeError("db down"))
     mock_webhook = MagicMock()
-    _run_handle(
+    region = _region()
+    region.log_channel = "CLOG"
+    client, _ = _run_handle(
         body=_create_body(),
         session=session,
+        region=region,
         extra_patches=[patch("features.backblast.trigger_achievement_webhook", mock_webhook)],
     )
+    log_posts = [call for call in client.chat_postMessage.call_args_list if call.kwargs.get("channel") == "CLOG"]
+    assert len(log_posts) == 1
+    assert "db down" in log_posts[0].kwargs["text"]
+    assert "Channel: C_DOWNRANGE" in log_posts[0].kwargs["text"]
+    assert "DRQ beatdown" not in log_posts[0].kwargs["text"]
     mock_webhook.assert_not_called()
     assert session.rolled_back
     assert not session.committed
@@ -405,13 +433,22 @@ def test_webhook_not_called_when_transaction_raises():
 def test_create_failure_dm_keeps_not_saved_wording():
     dup = IntegrityError("INSERT", {}, Exception("Duplicate entry"))
     session = RecordingSession(fail_on_add=dup)
-    client, _ = _run_handle(body=_create_body(), session=session)
+    logger = MagicMock()
+    client, _ = _run_handle(body=_create_body(), session=session, logger=logger)
     dms = _user_dms(client)
     assert len(dms) == 1
     text = dms[0].kwargs["text"]
     assert "was not saved to the database" in text
     assert "Your edit was not applied" not in text
     assert "previous backblast is still in the database" not in text
+    assert "Duplicate entry" not in text
+    assert "duplicate in the database (IntegrityError)" in text
+    assert "Slackblast CloudWatch logs" in text
+    logged = " ".join(str(call.args) for call in logger.error.call_args_list)
+    assert "channel_id=C_DOWNRANGE" in logged
+    assert "message_ts=123.456" in logged
+    assert "view_id=V_CREATE" in logged
+    assert "DRQ beatdown" not in logged
 
 
 def test_edit_without_message_ts_does_not_raise_nameerror():

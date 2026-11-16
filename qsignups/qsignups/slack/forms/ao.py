@@ -88,7 +88,7 @@ def publish_edit_ao_home(client, user_id, team_id, logger, selected_channel: str
             },
         )
     except Exception as e:
-        logger.error("Error publishing edit AO home tab: %s", e, exc_info=True)
+        logger.exception("Error publishing edit AO home tab")
 
 
 def add_form(team_id, user_id, client, logger):
@@ -191,7 +191,7 @@ def add_form(team_id, user_id, client, logger):
             },
         )
     except Exception as e:
-        logger.error("Error publishing home tab: %s", e, exc_info=True)
+        logger.exception("Error publishing home tab")
 
 
 def edit_form(
@@ -256,7 +256,7 @@ def edit_form(
             },
         )
     except Exception as e:
-        logger.error("Error publishing home tab: %s", e, exc_info=True)
+        logger.exception("Error publishing home tab")
 
 
 def delete_form(
@@ -295,7 +295,7 @@ def delete_form(
             },
         )
     except Exception as e:
-        logger.error("Error publishing home tab: %s", e, exc_info=True)
+        logger.exception("Error publishing home tab")
 
 
 def pull_aos(team_id):

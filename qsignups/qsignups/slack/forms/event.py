@@ -68,7 +68,7 @@ def open_open_slot_assignment_modal(
             view=build_open_slot_assignment_modal(ao_display_name, selected_dt, initial_user_id),
         )
     except Exception as e:
-        logger.error("Error opening open slot assignment modal: %s", e, exc_info=True)
+        logger.exception("Error opening open slot assignment modal")
 
 
 def _aos_for_team(
@@ -150,7 +150,7 @@ def add_single_form(
             }
         )
     except Exception as e:
-        logger.error("Error publishing home tab: %s", e, exc_info=True)
+        logger.exception("Error publishing home tab")
 
 def add_recurring_form(
     team_id,
@@ -200,7 +200,7 @@ def add_recurring_form(
             }
         )
     except Exception as e:
-        logger.error("Error publishing home tab: %s", e, exc_info=True)
+        logger.exception("Error publishing home tab")
 
 def publish_single_event_edit_slots(
     team_id, user_id, client, logger, ao_channel_id: str, ao_display_name: str
@@ -261,7 +261,7 @@ def publish_single_event_edit_slots(
     try:
         client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks})
     except Exception as e:
-        logger.error("Error publishing home tab: %s", e, exc_info=True)
+        logger.exception("Error publishing home tab")
 
 
 def edit_single_form(
@@ -306,7 +306,7 @@ def edit_single_form(
             },
         )
     except Exception as e:
-        logger.error("Error publishing home tab: %s", e, exc_info=True)
+        logger.exception("Error publishing home tab")
 
 def publish_single_event_delete_slots(
     team_id, user_id, client, logger, ao_channel_id: str, ao_display_name: str
@@ -353,7 +353,7 @@ def publish_single_event_delete_slots(
     try:
         client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks})
     except Exception as e:
-        logger.error("Error publishing home tab: %s", e, exc_info=True)
+        logger.exception("Error publishing home tab")
 
 
 def delete_single_form(
@@ -418,7 +418,7 @@ def delete_single_form(
             }
         )
     except Exception as e:
-        logger.error("Error publishing home tab: %s", e, exc_info=True)
+        logger.exception("Error publishing home tab")
 
 def select_recurring_form_for_edit(
     team_id,
@@ -477,7 +477,7 @@ def select_recurring_form_for_edit(
             }
         )
     except Exception as e:
-        logger.error("Error publishing home tab: %s", e, exc_info=True)
+        logger.exception("Error publishing home tab")
 
 def select_recurring_form_for_delete(
     team_id,
@@ -537,7 +537,7 @@ def select_recurring_form_for_delete(
             }
         )
     except Exception as e:
-        logger.error("Error publishing home tab: %s", e, exc_info=True)
+        logger.exception("Error publishing home tab")
 
 def edit_recurring_form(
     team_id,
@@ -592,7 +592,7 @@ def edit_recurring_form(
             }
         )
     except Exception as e:
-        logger.error("Error publishing home tab: %s", e, exc_info=True)
+        logger.exception("Error publishing home tab")
 
 def make_ao_section_selector(
     team_id,
@@ -641,4 +641,4 @@ def make_ao_section_selector(
             },
         )
     except Exception as e:
-        logger.error("Error publishing home tab: %s", e, exc_info=True)
+        logger.exception("Error publishing home tab")

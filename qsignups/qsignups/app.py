@@ -11,7 +11,7 @@ from slack_bolt.oauth.oauth_settings import OAuthSettings
 from slack_sdk.oauth import OAuthStateUtils
 from slack_sdk.oauth.installation_store.sqlalchemy import SQLAlchemyInstallationStore
 
-from utilities import User, safe_get, get_user
+from utilities import User, safe_get, get_user, log_slack_request, report_unhandled_error
 
 # from google import authenticate, commands
 
@@ -77,6 +77,11 @@ app = App(
     process_before_response=True,
     oauth_flow=get_oauth_flow(),
 )
+
+
+@app.error
+def handle_error(error, body, logger, client):
+    report_unhandled_error(logger, client, body, error)
 
 # Inputs
 schedule_create_length_days = 365
@@ -265,7 +270,7 @@ def publish_manage_calendar_screen(user_id, client, logger, team_id, bolt_contex
     try:
         client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks})
     except Exception as e:
-        logger.error("Error publishing manage calendar home tab: %s", e)
+        logger.exception("Error publishing manage calendar home tab")
 
 
 def _refresh_home_ack(ack):
@@ -276,7 +281,7 @@ def _refresh_home_lazy(body, client, logger, context):
     """Weinke PNG + S3 + DB can exceed Slack's 3s ack window; run after ack via lazy listener."""
     import weinke  # lazy: Pillow + boto3 only when generating images
 
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     user = get_user(user_id, client)
@@ -296,7 +301,7 @@ def _send_reminders_ack(ack):
 
 
 def _send_reminders_lazy(body, client, logger, context):
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     user = get_user(user_id, client)
@@ -339,7 +344,7 @@ def redirect_blocks(team_id: str, app_id: str):
 @app.event("app_mention")
 def handle_app_mentions(ack, body, logger, client):
     ack()
-    logger.info(f"INFO: {body}")
+    log_slack_request(logger, body)
     team_id = body["team_id"]
     app_id = body["api_app_id"]
     blocks = redirect_blocks(team_id, app_id)
@@ -377,7 +382,7 @@ def display_upcoming_schedule(ack):
 @app.event("app_home_opened")
 def update_home_tab(ack, client, event, logger, context, body):
     ack()
-    logger.info(event)
+    log_slack_request(logger, event)
     user_id = context["user_id"]
     team_id = context["team_id"]
     
@@ -420,7 +425,7 @@ def update_home_tab(ack, client, event, logger, context, body):
 # @app.action("schedule_q_button")
 # def handle_take_q_button(ack, body, client, logger, context):
 #     ack()
-#     logger.info(body)
+#     log_slack_request(logger, body)
 #     user_id = context["user_id"]
 #     user = get_user(user_id, client)
 #     team_id = context["team_id"]
@@ -431,7 +436,7 @@ def update_home_tab(ack, client, event, logger, context, body):
 @app.action(actions.MANAGE_SCHEDULE_ACTION)
 def handle_manager_schedule_button(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     publish_manage_calendar_screen(user_id, client, logger, team_id, context)
@@ -440,7 +445,7 @@ def handle_manager_schedule_button(ack, body, client, logger, context):
 @app.action(actions.BACK_TO_MANAGE_ACTION)
 def handle_back_to_manage(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     publish_manage_calendar_screen(context["user_id"], client, logger, context["team_id"], context)
 
 
@@ -448,7 +453,7 @@ def handle_back_to_manage(ack, body, client, logger, context):
 @app.action(inputs.ADD_AO_FORM.action)
 def handle_add_ao_form(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     if not _require_slack_admin(client, user_id, team_id, logger, context):
@@ -459,7 +464,7 @@ def handle_add_ao_form(ack, body, client, logger, context):
 @app.action(inputs.EDIT_AO_FORM.action)
 def handle_edit_ao_form(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     perm = _require_calendar_manager(client, user_id, team_id, logger, context)
@@ -472,7 +477,7 @@ def handle_edit_ao_form(ack, body, client, logger, context):
 @app.action(inputs.DELETE_AO_FORM.action)
 def handle_delete_ao_form(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     if not _require_slack_admin(client, user_id, team_id, logger, context):
@@ -483,7 +488,7 @@ def handle_delete_ao_form(ack, body, client, logger, context):
 @app.action(inputs.ADD_SINGLE_EVENT_FORM.action)
 def handle_add_event_form(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     perm = _require_calendar_manager(client, user_id, team_id, logger, context)
@@ -496,7 +501,7 @@ def handle_add_event_form(ack, body, client, logger, context):
 @app.action(inputs.EDIT_SINGLE_EVENT_FORM.action)
 def handle_edit_event_form(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     perm = _require_calendar_manager(client, user_id, team_id, logger, context)
@@ -509,7 +514,7 @@ def handle_edit_event_form(ack, body, client, logger, context):
 @app.action(inputs.DELETE_SINGLE_EVENT_FORM.action)
 def handle_delete_single_event_form(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     perm = _require_calendar_manager(client, user_id, team_id, logger, context)
@@ -522,7 +527,7 @@ def handle_delete_single_event_form(ack, body, client, logger, context):
 @app.action(inputs.ADD_RECURRING_EVENT_FORM.action)
 def handle_add_event_form(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     perm = _require_calendar_manager(client, user_id, team_id, logger, context)
@@ -535,7 +540,7 @@ def handle_add_event_form(ack, body, client, logger, context):
 @app.action(inputs.EDIT_RECURRING_EVENT_FORM.action)
 def handle_edit_event_form(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     perm = _require_calendar_manager(client, user_id, team_id, logger, context)
@@ -557,7 +562,7 @@ def handle_edit_event_form(ack, body, client, logger, context):
 @app.action(actions.EDIT_RECURRING_EVENT_AO_SELECT)
 def handle_edit_event_form(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     ao_channel_id = inputs.SECTION_SELECTOR.get_selected_value(body)
@@ -571,7 +576,7 @@ def handle_edit_event_form(ack, body, client, logger, context):
 @app.action(inputs.DELETE_RECURRING_EVENT_FORM.action)
 def handle_delete_event_form(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     perm = _require_calendar_manager(client, user_id, team_id, logger, context)
@@ -593,7 +598,7 @@ def handle_delete_event_form(ack, body, client, logger, context):
 @app.action(actions.DELETE_RECURRING_EVENT_AO_SELECT)
 def handle_delete_single_event_form(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     ao_channel_id = inputs.SECTION_SELECTOR.get_selected_value(body)
@@ -607,7 +612,7 @@ def handle_delete_single_event_form(ack, body, client, logger, context):
 @app.action(inputs.GENERAL_SETTINGS.action)
 def handle_general_settings_form(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     user = get_user(user_id, client)
@@ -625,7 +630,7 @@ def handle_general_settings_form(ack, body, client, logger, context):
 @app.action(actions.DELETE_RECURRING_SELECT_ACTION)
 def handle_delete_recurring_select(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     team_id = context["team_id"]
     user_id = context["user_id"]
     event_id = int(body["actions"][0]["value"])
@@ -652,7 +657,7 @@ def handle_delete_recurring_select(ack, body, client, logger, context):
     try:
         client.views_open(trigger_id=body["trigger_id"], view=view)
     except Exception as e:
-        logger.error("Error opening delete recurring confirm modal: %s", e)
+        logger.exception("Error opening delete recurring confirm modal")
 
 
 @app.view(actions.CONFIRM_DELETE_RECURRING_VIEW)
@@ -676,7 +681,7 @@ def handle_confirm_delete_recurring_view(ack, body, client, logger, context):
 @app.action(actions.SELECT_SLOT_EDIT_RECURRING_EVENT_FORM)
 def handle_edit_recurring_event_slot_select(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     input_data = body["actions"][0]["value"]
@@ -698,7 +703,7 @@ def handle_edit_recurring_event_slot_select(ack, body, client, logger, context):
 @app.action(actions.EDIT_RECURRING_EVENT_ACTION)
 def handle_edit_recurring_event(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     team_id = context["team_id"]
     user_id = context["user_id"]
     input_data = body["view"]["state"]["values"]
@@ -747,7 +752,7 @@ def handle_edit_recurring_event(ack, body, client, logger, context):
     try:
         client.views_open(trigger_id=body["trigger_id"], view=view)
     except Exception as e:
-        logger.error("Error opening edit recurring confirm modal: %s", e)
+        logger.exception("Error opening edit recurring confirm modal")
 
 
 @app.view(actions.CONFIRM_EDIT_RECURRING_EVENT_VIEW)
@@ -773,7 +778,7 @@ def handle_confirm_edit_recurring_view(ack, body, client, logger, context):
 @app.action("delete_single_event_ao_select")
 def handle_delete_single_event_ao_select(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     ao_display_name = body["actions"][0]["selected_option"]["text"]["text"]
@@ -827,14 +832,14 @@ def handle_delete_single_event_ao_select(ack, body, client, logger, context):
     # Publish view
     try:
         client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks})
-    except Exception as e:
-        logger.error(f"Error publishing home tab: {e}")
+    except Exception:
+        logger.exception("Error publishing home tab")
 
 
 @app.action("delete_single_event_button")
 def delete_single_event_button(ack, client, body, context, logger):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     team_id = context["team_id"]
     user_id = context["user_id"]
     input_data = body["actions"][0]["value"]
@@ -877,7 +882,7 @@ def delete_single_event_button(ack, client, body, context, logger):
     try:
         client.views_open(trigger_id=body["trigger_id"], view=view)
     except Exception as e:
-        logger.error("Error opening delete single event confirm modal: %s", e)
+        logger.exception("Error opening delete single event confirm modal")
 
 
 @app.view(actions.CONFIRM_DELETE_EVENT_VIEW)
@@ -901,7 +906,7 @@ def handle_confirm_delete_event_view(ack, body, client, logger, context):
 @app.action("edit_ao_select")
 def handle_edit_ao_select(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     user = get_user(user_id, client)
     team_id = context["team_id"]
@@ -930,7 +935,7 @@ def handle_edit_ao_select(ack, body, client, logger, context):
 @app.action(actions.EDIT_SINGLE_EVENT_AO_SELECT)
 def handle_edit_event_ao_select(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     ao_channel_id, ao_display_name = inputs.SECTION_SELECTOR.get_selected_value(input_data=body, text_too=True)
@@ -944,7 +949,7 @@ def handle_edit_event_ao_select(ack, body, client, logger, context):
 @app.action(actions.EDIT_AO_ACTION)
 def submit_edit_ao_button(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     team_id = context["team_id"]
     user_id = context["user_id"]
     page_label = body["view"]["blocks"][0]["text"]["text"]
@@ -977,7 +982,7 @@ def submit_edit_ao_button(ack, body, client, logger, context):
     try:
         client.views_open(trigger_id=body["trigger_id"], view=view)
     except Exception as e:
-        logger.error("Error opening edit AO confirm modal: %s", e)
+        logger.exception("Error opening edit AO confirm modal")
 
 
 @app.view(actions.CONFIRM_EDIT_AO_VIEW)
@@ -1002,7 +1007,7 @@ def handle_confirm_edit_ao_view(ack, body, client, logger, context):
 @app.action(actions.DELETE_AO_ACTION)
 def submit_delete_ao_button(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     team_id = context["team_id"]
     user_id = context["user_id"]
     ao_channel_id = body["actions"][0]["value"]
@@ -1024,7 +1029,7 @@ def submit_delete_ao_button(ack, body, client, logger, context):
     try:
         client.views_open(trigger_id=body["trigger_id"], view=view)
     except Exception as e:
-        logger.error("Error opening delete AO confirm modal: %s", e)
+        logger.exception("Error opening delete AO confirm modal")
 
 
 @app.view(actions.CONFIRM_DELETE_AO_VIEW)
@@ -1045,7 +1050,7 @@ def handle_confirm_delete_ao_view(ack, body, client, logger, context):
 @app.action(actions.EDIT_SETTINGS_ACTION)
 def handle_submit_general_settings_button(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     user = get_user(user_id, client)
     team_id = context["team_id"]
@@ -1065,7 +1070,7 @@ def handle_submit_general_settings_button(ack, body, client, logger, context):
 @app.action(actions.ADD_AO_ACTION)
 def handle_submit_add_ao_button(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     user = get_user(user_id, client)
     team_id = context["team_id"]
@@ -1079,7 +1084,7 @@ def handle_submit_add_ao_button(ack, body, client, logger, context):
 @app.action(actions.ADD_RECURRING_EVENT_ACTION)
 def handle_submit_add_recurring_event_button(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     user = get_user(user_id, client)
     team_id = context["team_id"]
@@ -1103,7 +1108,7 @@ def handle_submit_add_recurring_event_button(ack, body, client, logger, context)
 @app.action(actions.ADD_SINGLE_EVENT_ACTION)
 def handle_submit_add_single_event_button(ack, body, client, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     user = get_user(user_id, client)
     team_id = context["team_id"]
@@ -1127,7 +1132,7 @@ def handle_submit_add_single_event_button(ack, body, client, logger, context):
 def ao_select_slot(ack, client, body, logger, context):
     # acknowledge action and log payload
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
 
     user_id = context["user_id"]
     team_id = context["team_id"]
@@ -1197,8 +1202,8 @@ def ao_select_slot(ack, client, body, logger, context):
     # Publish view
     try:
         client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks})
-    except Exception as e:
-        logger.error(f"Error publishing home tab: {e}")
+    except Exception:
+        logger.exception("Error publishing home tab")
 
 
 # triggered when user selects open slot
@@ -1206,7 +1211,7 @@ def ao_select_slot(ack, client, body, logger, context):
 def handle_date_select_button(ack, client, body, logger, context):
     # acknowledge action and log payload
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     user = get_user(user_id, client)
@@ -1233,7 +1238,7 @@ def handle_date_select_button(ack, client, body, logger, context):
 def handle_date_select_button_from_message(ack, client, body, logger, context):
     # acknowledge action and log payload
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
     ao_channel_id = body["channel"]["id"]
@@ -1254,7 +1259,7 @@ def handle_date_select_button_from_message(ack, client, body, logger, context):
 @app.view(actions.ASSIGN_OPEN_SLOT_VIEW)
 def handle_submit_assign_open_slot_button(ack, client, body, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = body["user"]["id"]
     team_id = _team_id_from_interaction(body)
     hctx = _context_for_home_refresh(body, client, context)
@@ -1318,7 +1323,7 @@ def handle_ignore_button(ack, client, body, logger, context):
 def handle_taken_date_select_button(ack, client, body, logger, context):
     # acknowledge action and log payload
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
 
     user_id = context["user_id"]
     context["team_id"]
@@ -1373,7 +1378,7 @@ def handle_taken_date_select_button(ack, client, body, logger, context):
         try:
             client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks})
         except Exception as e:
-            logger.error(f"Error publishing home tab: {e}")
+            logger.exception("Error publishing home tab")
     # Check to see if user matches selected user id OR if they are an admin
     # If so, bring up buttons:
     #   block 1: drop down to add special qualifier (VQ, Birthday Q, F3versary, Forge, etc.)
@@ -1385,7 +1390,7 @@ def handle_taken_date_select_button(ack, client, body, logger, context):
 def handle_edit_single_event_button(ack, client, body, logger, context):
     # acknowledge action and log payload
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     team_id = context["team_id"]
 
@@ -1551,15 +1556,15 @@ def handle_edit_single_event_button(ack, client, body, logger, context):
                 "private_metadata": json.dumps(edit_meta),
             },
         )
-    except Exception as e:
-        logger.error(f"Error publishing home tab: {e}")
+    except Exception:
+        logger.exception("Error publishing home tab")
 
 
 # triggered when user hits submit on event edit
 @app.action(actions.EDIT_EVENT_ACTION)
 def handle_submit_edit_event_button(ack, client, body, logger, context):
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     team_id = context["team_id"]
     user_id = context["user_id"]
     pm = json.loads(body["view"].get("private_metadata") or "{}")
@@ -1641,7 +1646,7 @@ def handle_submit_edit_event_button(ack, client, body, logger, context):
     try:
         client.views_open(trigger_id=body["trigger_id"], view=view)
     except Exception as e:
-        logger.error("Error opening edit single event confirm modal: %s", e)
+        logger.exception("Error opening edit single event confirm modal")
 
 
 @app.view(actions.CONFIRM_EDIT_EVENT_VIEW)
@@ -1696,7 +1701,7 @@ def handle_confirm_edit_event_view(ack, body, client, logger, context):
 def handle_clear_slot_button(ack, client, body, logger, context):
     # acknowledge action and log payload
     ack()
-    logger.info(body)
+    log_slack_request(logger, body)
     user_id = context["user_id"]
     user = get_user(user_id, client)
     team_id = context["team_id"]

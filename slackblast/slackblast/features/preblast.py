@@ -185,7 +185,6 @@ def handle_preblast_post(body: dict, client: WebClient, logger: Logger, context:
                 blocks=blocks,
                 metadata={"event_type": "backblast", "event_payload": preblast_data},
             )
-            logger.debug("\nPreblast posted to Slack! \n{}".format(msg))
             logger.info(
                 json.dumps({"event_type": "successful_preblast_create", "team_name": region_record.workspace_name})
             )
@@ -198,7 +197,6 @@ def handle_preblast_post(body: dict, client: WebClient, logger: Logger, context:
                 icon_url=q_url,
                 blocks=blocks,
             )
-            logger.debug("\nPreblast updated in Slack! \n{}".format(msg))
             logger.info(
                 json.dumps({"event_type": "successful_preblast_edit", "team_name": region_record.workspace_name})
             )

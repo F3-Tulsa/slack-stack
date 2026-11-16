@@ -344,10 +344,90 @@ def get_channel_id(name, logger, client):
 
 def resolve_paxminer_log_channel(region_record, logger, client):
     """Prefer region_config.log_channel; fall back to looking up #paxminer_logs by name."""
-    stored = (getattr(region_record, "log_channel", None) or "").strip()
-    if stored:
-        return stored
+    stored = getattr(region_record, "log_channel", None)
+    if isinstance(stored, str) and stored.strip():
+        return stored.strip()
     return get_channel_id("paxminer_logs", logger, client)
+
+
+def format_log_fields(fields: dict) -> str:
+    """key=value pairs for logs. Skips missing values instead of printing blanks."""
+    parts = []
+    for key, value in fields.items():
+        if isinstance(value, bool):
+            parts.append(f"{key}={value}")
+            continue
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            parts.append(f"{key}={text}")
+    return " ".join(parts)
+
+
+def join_log(*parts) -> str:
+    return " ".join(part for part in parts if part)
+
+
+def slack_actor_id(payload) -> str:
+    """The person on the request, when Slack sent one."""
+    if not isinstance(payload, dict):
+        return ""
+    user = payload.get("user")
+    if isinstance(user, dict):
+        found = user.get("id") or ""
+    elif isinstance(user, str):
+        found = user
+    else:
+        found = ""
+    event = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+    event_user = event.get("user")
+    if isinstance(event_user, dict):
+        event_user = event_user.get("id") or ""
+    elif not isinstance(event_user, str):
+        event_user = ""
+    return str(payload.get("user_id") or found or event_user or "").strip()
+
+
+def operator_log_message(notice: str, **fields) -> str:
+    """Admin line for the PAXMiner log channel. Omits fields that have no value."""
+    labels = (
+        ("team_id", "Team"),
+        ("user_id", "User"),
+        ("channel_id", "Channel"),
+        ("channel_name", "Channel name"),
+        ("message_ts", "Message"),
+        ("view_id", "View"),
+        ("event_id", "Event"),
+        ("strava_activity_id", "Strava activity"),
+    )
+    extra = []
+    for key, label in labels:
+        value = fields.get(key)
+        text = "" if value is None else str(value).strip()
+        if not text:
+            continue
+        if key == "channel_id" and _SLACK_CHANNEL_ID.fullmatch(text):
+            text = f"<#{text}>"
+        extra.append(f"{label}: {text}")
+    notice = (notice or "").strip()
+    if not extra:
+        return notice
+    block = "```\n" + "\n".join(extra) + "\n```"
+    return f"{notice}\n{block}" if notice else block
+
+
+def post_operator_log(client, logger, region_record, text: str) -> None:
+    """Best-effort post to the PAXMiner log channel. Never raises."""
+    if not text or not str(text).strip():
+        return
+    try:
+        channel = resolve_paxminer_log_channel(region_record, logger, client)
+        if not isinstance(channel, str) or not channel.strip():
+            return
+        client.chat_postMessage(channel=channel.strip(), text=text)
+    except Exception:
+        logger.warning("PAXMiner log channel post failed")
 
 
 def backblast_date_label(value) -> str:
@@ -607,8 +687,12 @@ def check_for_duplicate(
         filters=[Attendance.q_user_id == q, Attendance.ao_id == ao, Attendance.date == date],
         schema=paxminer_schema_name(),
     )
-    logger.debug(f"Backblast dups: {backblast_dups}")
-    logger.debug(f"og_ts: {og_ts}")
+    logger.debug(
+        "duplicate check backblasts=%s attendance=%s og_ts=%s",
+        len(backblast_dups),
+        len(attendance_dups),
+        og_ts,
+    )
     has_dups = len(backblast_dups) > 0 or len(attendance_dups) > 0
     # If the matching backblast record is the one being edited (og_ts matches),
     # it is not a true duplicate. When only attendance dups exist (no backblast
@@ -719,6 +803,126 @@ def get_region_record(team_id: str, body, context, client, logger) -> Region:
     )
     REGION_RECORDS[team_id] = region_record
     return region_record
+
+
+_CONTEXT_ID = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+_CHANNEL_NAME = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+_SLACK_CHANNEL_ID = re.compile(r"^[CDG][A-Z0-9]{8,}$")
+_METADATA_CHANNEL_KEYS = ("channel_id", "ao_channel_id", "strava-channel-id")
+_METADATA_TS_KEYS = ("message_ts", "strava-ts")
+_METADATA_EXTRA_KEYS = (
+    ("event_id", "event_id"),
+    ("strava-activity-id", "strava_activity_id"),
+)
+_CONTEXT_FIELD_ORDER = (
+    "channel_id",
+    "channel_name",
+    "message_ts",
+    "view_id",
+    "event_id",
+    "strava_activity_id",
+)
+
+
+def _context_id(value) -> str:
+    """Keep Slack ids and timestamps. Drop form text, names, and secrets."""
+    if value is None or isinstance(value, (dict, list, bool)):
+        return ""
+    text = str(value).strip()
+    return text if _CONTEXT_ID.fullmatch(text) else ""
+
+
+def _json_object(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str) or not value or value[0] not in "{[":
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def slack_request_context(payload, **overrides) -> Dict[str, str]:
+    """Ids for a Slack request: channel, post, and modal.
+
+    Reads those ids from the envelope and from known metadata keys. Form
+    values, message text, tokens, and the rest of the body are ignored.
+    ``overrides`` fill a missing id (for example the channel a backblast
+    was posted to) and are held to the same id check.
+    """
+    if not isinstance(payload, dict):
+        payload = {}
+    channel = payload.get("channel")
+    if isinstance(channel, dict):
+        channel_id = _context_id(channel.get("id"))
+    else:
+        channel_id = _context_id(channel)
+    container = payload.get("container") if isinstance(payload.get("container"), dict) else {}
+    event = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+    event_channel = event.get("channel")
+    if isinstance(event_channel, dict):
+        event_channel_id = _context_id(event_channel.get("id"))
+    else:
+        event_channel_id = _context_id(event_channel) or _context_id(event.get("channel_id"))
+    view = payload.get("view") if isinstance(payload.get("view"), dict) else {}
+    message = payload.get("message") if isinstance(payload.get("message"), dict) else {}
+    actions_list = payload.get("actions") if isinstance(payload.get("actions"), list) else []
+    action = actions_list[0] if actions_list and isinstance(actions_list[0], dict) else {}
+    blobs = (_json_object(view.get("private_metadata")), _json_object(action.get("value")))
+
+    def from_blobs(keys) -> str:
+        for blob in blobs:
+            for key in keys:
+                found = _context_id(blob.get(key))
+                if found:
+                    return found
+        return ""
+
+    channel_id = (
+        _context_id(payload.get("channel_id"))
+        or channel_id
+        or _context_id(container.get("channel_id"))
+        or event_channel_id
+        or from_blobs(_METADATA_CHANNEL_KEYS)
+    )
+    action_value = _context_id(action.get("value"))
+    if not channel_id and _SLACK_CHANNEL_ID.fullmatch(action_value or ""):
+        channel_id = action_value
+
+    message_ts = (
+        _context_id(container.get("message_ts"))
+        or _context_id(message.get("ts"))
+        or _context_id(payload.get("message_ts"))
+        or from_blobs(_METADATA_TS_KEYS)
+    )
+    if not message_ts and event.get("type") in {"message", "app_mention"}:
+        message_ts = _context_id(event.get("ts"))
+
+    view_id = (
+        _context_id(view.get("id"))
+        or _context_id(container.get("view_id"))
+        or _context_id(payload.get(actions.LOADING_ID))
+    )
+    fields = {
+        "channel_id": channel_id,
+        "message_ts": message_ts,
+        "view_id": view_id,
+    }
+    for source_key, log_key in _METADATA_EXTRA_KEYS:
+        fields[log_key] = from_blobs((source_key,))
+    channel_name = payload.get("channel_name")
+    if isinstance(channel_name, str) and _CHANNEL_NAME.fullmatch(channel_name):
+        fields["channel_name"] = channel_name
+    for key, value in overrides.items():
+        if key in _CONTEXT_FIELD_ORDER and not fields.get(key):
+            fields[key] = _context_id(value)
+    return {key: fields[key] for key in _CONTEXT_FIELD_ORDER if fields.get(key)}
+
+
+def format_slack_request_context(payload, **overrides) -> str:
+    return " ".join(f"{key}={value}" for key, value in slack_request_context(payload, **overrides).items())
 
 
 def get_request_type(body: dict) -> Tuple[str]:

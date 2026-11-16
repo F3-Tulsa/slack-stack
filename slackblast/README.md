@@ -19,6 +19,10 @@ Built from **[slack-stack](../README.md)**. Deploy with `slackblast/template.yam
 - **Email / Postie** — Optional SMTP + post-by-email configuration.
 - **Welcome messages** — DMs and channel intros, configured from the Welcomebot Settings button in `/config-slackblast`.
 
+## Errors
+
+When a modal is already open, a failed action updates that view. The person who clicked also gets a DM. Both include a short code. Unexpected failures, including a save that did not reach the database, also post that note to the PAXMiner log channel configured for the region. A duplicate backblast stays in the poster's DM. Search the Slackblast CloudWatch log group for the code. The line includes the team, the user, the command or action, the channel, the message timestamp, and the modal view id when Slack sent them, and leaves a field off when it did not. The request body is not logged. A failed welcome is logged and posted to the PAXMiner log channel, and the new member is not messaged. See [docs/TROUBLESHOOTING.md](../docs/TROUBLESHOOTING.md).
+
 <img src="assets/backblast_demo.png" width="500" alt="Backblast form demo" />
 
 ## Local development

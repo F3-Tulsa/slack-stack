@@ -253,6 +253,18 @@ def send_team_reminders(client: WebClient, team_id: str, logger: logging.Logger,
         result.ao_messages_sent,
         result.error_count(),
     )
+    if result.errors:
+        try:
+            client.chat_postMessage(
+                channel="paxminer_logs",
+                text=(
+                    "*QSignups* reminder failed.\n```\n"
+                    f"Team: {team_id}\n"
+                    f"Errors: {result.error_count()}\n```"
+                ),
+            )
+        except Exception:
+            logger.warning("PAXMiner log channel post failed")
     return result
 
 
